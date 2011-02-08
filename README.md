@@ -24,6 +24,8 @@
 
 `curl -F 'temperature=3000' http://127.0.0.1:8000/data/really_important_server`
 
+Then surf over to http://127.0.0.1:8000 to view your data. To start with, we show you one data point per minute.
+
 <br />
 **Q**: Please tell me you have some helper libraries.
 
