@@ -39,6 +39,7 @@
     if __name__ == '__main__':
         send_once('busy_server', {'cpu_percent': 100, 'memory_free': 0})
 
+<br />
 
     '''
     This guy will follow a logfile and call parse_line for each line in that file.
