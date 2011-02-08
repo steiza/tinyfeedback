@@ -266,6 +266,8 @@ class Controller(object):
 
         session.commit()
 
+        return ''
+
     @straighten_out_request
     def get_data(self, request, component, metric):
         session = self.__SessionMaker()
@@ -376,7 +378,7 @@ def set_up_server():
     log.addHandler(handler)
 
     engine = sqlalchemy.create_engine(
-            config.DATA_STORE
+            config.DATA_STORE,
             pool_size = 20,
             max_overflow = -1,
             pool_recycle = 1, # Re-open closed connections to db after 1 second
