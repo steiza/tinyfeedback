@@ -1,0 +1,40 @@
+body {
+    font-family: 'courier';
+    margin: 10px;
+}
+
+h2.error {
+    color: red;
+}
+
+a {
+    font-size: small;
+}
+
+a.nav {
+    font-size: x-large;
+}
+
+.timescale {
+    font-size: large;
+}
+
+span.login {
+    float: right;
+}
+
+span.remove {
+    float: right;
+}
+
+table {
+    font-size: small;
+}
+
+table.sparkline td {
+    padding: 5px;
+}
+
+table.graph td {
+    padding: 20px;
+}

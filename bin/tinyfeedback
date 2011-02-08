@@ -1,0 +1,7 @@
+#!/usr/bin/env python
+
+import tinyfeedback.webserver
+
+
+if __name__ == '__main__':
+    tinyfeedback.webserver.set_up_server()
