@@ -30,40 +30,40 @@
 **A**: Of course! Check out these two fine examples:
 
 ```python
-'''
-If you're in the middle of a program and are like "Srsly? I have to shell out
-to curl?", then this example is for you.
-'''
+    '''
+    If you're in the middle of a program and are like "Srsly? I have to shell out
+    to curl?", then this example is for you.
+    '''
 
-from tinyfeedback.helper import send_once
+    from tinyfeedback.helper import send_once
 
-if __name__ == '__main__':
-    send_once('busy_server', {'cpu_percent': 100, 'memory_free': 0})
+    if __name__ == '__main__':
+        send_once('busy_server', {'cpu_percent': 100, 'memory_free': 0})
 ```
 
 ```python
-'''
-This guy will follow a logfile and call parse_line for each line in that file.
+    '''
+    This guy will follow a logfile and call parse_line for each line in that file.
 
-Don't worry about the logfile rotating! This guy will keep on top of it.
-Want to put on your expert pants? Check out the format_data_callback_func arg.
-'''
+    Don't worry about the logfile rotating! This guy will keep on top of it.
+    Want to put on your expert pants? Check out the format_data_callback_func arg.
+    '''
 
-from tinyfeedback.helper import tail_monitor
+    from tinyfeedback.helper import tail_monitor
 
-def parse_line(data, line):
-    if 'apple' in line:
-        data['apples'] += 1
+    def parse_line(data, line):
+        if 'apple' in line:
+            data['apples'] += 1
 
-    elif 'orange' in line:
-        data['oranges'] += 1
+        elif 'orange' in line:
+            data['oranges'] += 1
 
-if __name__ == '__main__':
-    tail_monitor(component='really_important_fruit_server',
-            log_filename='/var/log/fruit_server.log',
-            line_callback_func=parse_line,
-            data_arg={'apples': 0, 'oranges': 0},
-            )
+    if __name__ == '__main__':
+        tail_monitor(component='really_important_fruit_server',
+                log_filename='/var/log/fruit_server.log',
+                line_callback_func=parse_line,
+                data_arg={'apples': 0, 'oranges': 0},
+                )
 ```
 
 <br />
