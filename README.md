@@ -32,6 +32,8 @@
     '''
     If you're in the middle of a program and are like "Srsly? I have to shell out
     to curl?", then this example is for you.
+
+    Especially useful for monitoring scripts run periodically by cron, then exit.
     '''
 
     from tinyfeedback.helper import send_once
