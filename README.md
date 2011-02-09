@@ -10,21 +10,29 @@
 
 **Q**: What on earth ...?
 
-**A**: tinyfeedback is a rediculously simple way for you to see trends in whatever you are monitoring. You do an HTTP POST to put data in, and you point and click in the web interface to make some graphs. Yay!
+**A**: tinyfeedback is a ridiculously simple way for you to see trends in whatever you are monitoring. You do an HTTP POST to put data in, and you point and click in the web interface to make some graphs. Yay!
 
 <br />
 **Q**: What do I need to get started?
 
-**A**: A *nix machine with mysql; check out lib/python/tinyfeedback/config.py for details.
+**A**:
+A *nix machine with mysql; check out lib/python/tinyfeedback/config.py for details.
+
+The Mako, Sqlalchemy, Simplejson, and Routes Python libraries.
 
 <br />
 **Q**: How do I get started?
 
-**A**: Run bin/tinyfeedback-ctl start. Pause for a moment to reflect on how your life might be changed. Then put some data in to it. Maybe run something like:
+**A**:
+Edit config.py. Make sure the databases and users implied by DATA_STORE exist.  This is a SQLAlchemy create_engine pseudo_url.
+
+Run bin/tinyfeedback-ctl start. Pause for a moment to reflect on how your life might be changed. Then put some data in to it. Maybe run something like:
 
 `curl -F 'temperature=3000' http://127.0.0.1:8000/data/really_important_server`
 
 Then surf over to http://127.0.0.1:8000 to view your data. To start with, we show you one data point per minute.
+
+Custom graphs can be set up at the /edit URL.
 
 <br />
 **Q**: Please tell me you have some helper libraries.
