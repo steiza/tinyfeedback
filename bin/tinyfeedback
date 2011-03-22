@@ -2,6 +2,13 @@
 
 import tinyfeedback.webserver
 
+PORT = 8000
+DATA_STORE = 'mysql://tinyfeedback@localhost/tinyfeedback'
+
+LOG_PATH = '/var/log/tinyfeedback.log'
+LOG_LEVEL = 'DEBUG'
+
 
 if __name__ == '__main__':
-    tinyfeedback.webserver.set_up_server()
+    tinyfeedback.webserver.set_up_server(port=PORT, data_store=DATA_STORE,
+            log_path=LOG_PATH, log_level=LOG_LEVEL)

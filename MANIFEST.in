@@ -1,0 +1,3 @@
+include tinyfeedback/templates/*
+include tinyfeedback/static/css/*
+include tinyfeedback/static/js/*
