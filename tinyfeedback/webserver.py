@@ -57,7 +57,7 @@ class Controller(object):
         # Set up template lookup directory
         self.__template_lookup = mako.lookup.TemplateLookup(
                 directories=[os.path.join(os.path.dirname(__file__),
-                    'templates')])
+                    'templates')], input_encoding='utf-8')
 
     # User-visible pages
     @straighten_out_request
@@ -91,7 +91,7 @@ class Controller(object):
         template = self.__template_lookup.get_template('index.mako')
 
         return template.render(components=keys, username=username, edit=edit,
-                user_id=user_id, graphs=graphs)
+                user_id=user_id, graphs=graphs).encode('utf8')
 
     @straighten_out_request
     def get_component(self, request, component):
@@ -128,7 +128,7 @@ class Controller(object):
 
         return template.render(component=component, metrics=metrics,
                 username=username, timescale=timescale,
-                timescales=self.timescales)
+                timescales=self.timescales).encode('utf8')
 
     @straighten_out_request
     def get_edit(self, request):
@@ -144,8 +144,7 @@ class Controller(object):
 
             request.setResponseCode(303)
             request.redirect('/')
-            request.finish()
-            return
+            return ''
 
         graph_type = request.args.get('graph_type', '')
 
@@ -158,7 +157,7 @@ class Controller(object):
 
         return template.render(kwargs=request.args, data_sources=data_sources,
                 username=username, timescales=self.timescales,
-                graph_types=self.graph_types)
+                graph_types=self.graph_types).encode('utf8')
 
     @straighten_out_request
     def post_edit(self, request):
@@ -171,8 +170,7 @@ class Controller(object):
 
             request.setResponseCode(303)
             request.redirect(redirect)
-            request.finish()
-            return
+            return ''
 
         elif len(request.args) == 3:
             request.args['error'] = 'no_fields'
@@ -180,8 +178,7 @@ class Controller(object):
 
             request.setResponseCode(303)
             request.redirect(redirect)
-            request.finish()
-            return
+            return ''
 
         user_id = model.ensure_user_exists(self.__SessionMaker, username)
         title = request.args['title']
@@ -203,8 +200,7 @@ class Controller(object):
 
         request.setResponseCode(303)
         request.redirect('/')
-        request.finish()
-        return
+        return ''
 
     @straighten_out_request
     def get_graph(self, request):
@@ -238,7 +234,7 @@ class Controller(object):
         template = self.__template_lookup.get_template('graph.mako')
 
         return template.render(username=username, title=title,
-                graph_type=graph_type, components=keys, graph=[graph])
+                graph_type=graph_type, components=keys, graph=[graph]).encode('utf8')
 
     # API for dealing with data
     @straighten_out_request
@@ -281,8 +277,7 @@ class Controller(object):
         else:
             request.setResponseCode(400)
             request.redirect('/')
-            request.finish()
-            return
+            return ''
 
         ret, should_save = model.get_data()
 
@@ -317,8 +312,7 @@ class Controller(object):
         if request.args.get('username', None) is None:
             request.setResponseCode(400)
             request.redirect('/')
-            request.finish()
-            return
+            return ''
 
         username = request.args['username'].lower()
         self.__user_sessions[user_session] = username
@@ -331,8 +325,7 @@ class Controller(object):
 
         request.setResponseCode(303)
         request.redirect(referer)
-        request.finish()
-        return
+        return ''
 
     @straighten_out_request
     def get_logout(self, request):
@@ -348,8 +341,7 @@ class Controller(object):
 
         request.setResponseCode(303)
         request.redirect(referer)
-        request.finish()
-        return
+        return ''
 
 
 def set_up_server(port, data_store, log_path, log_level):
