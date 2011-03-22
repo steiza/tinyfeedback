@@ -18,7 +18,6 @@ from twisted.web.static import File
 import model
 from model import Data
 import twistedroutes
-import config
 
 log = None
 
@@ -353,11 +352,7 @@ class Controller(object):
         return
 
 
-def set_up_server():
-    port = config.PORT
-    log_path = config.LOG_PATH
-    log_level = config.LOG_LEVEL
-
+def set_up_server(port, data_store, log_path, log_level):
     global log
 
     log = logging.getLogger('tinyfeedback')
@@ -378,7 +373,7 @@ def set_up_server():
     log.addHandler(handler)
 
     engine = sqlalchemy.create_engine(
-            config.DATA_STORE,
+            data_store,
             pool_size = 20,
             max_overflow = -1,
             pool_recycle = 1, # Re-open closed connections to db after 1 second
