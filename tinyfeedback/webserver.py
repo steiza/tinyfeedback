@@ -2,6 +2,7 @@
 #   curl -F 'key1=1' -F 'key2=2' http://127.0.0.1:8000/data/component1
 #   curl -X DELETE http://127.0.0.1:8000/data/component1/key1
 
+import datetime
 import logging
 import logging.handlers
 import os
@@ -52,8 +53,6 @@ class Controller(object):
         self.timescales = ['6h', '36h', '1w', '1m', '6m']
         self.graph_types = ['line', 'stacked']
 
-        self.__user_sessions = {}
-
         # Set up template lookup directory
         self.__template_lookup = mako.lookup.TemplateLookup(
                 directories=[os.path.join(os.path.dirname(__file__),
@@ -62,8 +61,7 @@ class Controller(object):
     # User-visible pages
     @straighten_out_request
     def get_index(self, request):
-        user_session = request.getSession()
-        username = self.__user_sessions.get(user_session)
+        username = request.getCookie('username')
 
         if 'edit' in request.args:
             edit = request.args['edit']
@@ -95,8 +93,7 @@ class Controller(object):
 
     @straighten_out_request
     def get_component(self, request, component):
-        user_session = request.getSession()
-        username = self.__user_sessions.get(user_session)
+        username = request.getCookie('username')
 
         timescale = request.args.get('ts', '6h')
 
@@ -132,8 +129,7 @@ class Controller(object):
 
     @straighten_out_request
     def get_edit(self, request):
-        user_session = request.getSession()
-        username = self.__user_sessions.get(user_session)
+        username = request.getCookie('username')
 
         title = request.args.get('title', '')
         request.args['title'] = title
@@ -165,8 +161,7 @@ class Controller(object):
 
     @straighten_out_request
     def post_edit(self, request):
-        user_session = request.getSession()
-        username = self.__user_sessions.get(user_session)
+        username = request.getCookie('username')
 
         if request.args['title'] == '':
             request.args['error'] = 'no_title'
@@ -208,8 +203,7 @@ class Controller(object):
 
     @straighten_out_request
     def get_graph(self, request):
-        user_session = request.getSession()
-        username = self.__user_sessions.get(user_session)
+        username = request.getCookie('username')
 
         title = request.args.get('title', '')
         graph_type = request.args.get('graph_type', '')
@@ -311,15 +305,19 @@ class Controller(object):
     # Dealing with login
     @straighten_out_request
     def post_login(self, request):
-        user_session = request.getSession()
-
         if request.args.get('username', None) is None:
             request.setResponseCode(400)
             request.redirect('/')
             return ''
 
         username = request.args['username'].lower()
-        self.__user_sessions[user_session] = username
+
+        # Save the username as a cookie
+        current_utc_time = datetime.datetime.utcnow()
+        current_utc_time += datetime.timedelta(days=365)
+        expires_str = current_utc_time.strftime('%a, %d-%b-%Y %H:%M:%S GMT')
+
+        request.addCookie('username', username, expires=expires_str)
 
         model.ensure_user_exists(self.__SessionMaker, username)
 
@@ -333,11 +331,9 @@ class Controller(object):
 
     @straighten_out_request
     def get_logout(self, request):
-        user_session = request.getSession()
-        username = self.__user_sessions.get(user_session)
+        username = request.getCookie('username')
 
-        if username is not None and user_session in self.__user_sessions:
-            del self.__user_sessions[user_session]
+        request.addCookie('username', username, max_age=0)
 
         referer = request.getHeader('Referer')
         if referer is None:
