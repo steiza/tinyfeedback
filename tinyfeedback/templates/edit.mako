@@ -1,8 +1,23 @@
 <html>
     <head>
         <link href='/static/css/style.css' type='text/css' rel='stylesheet' />
+        <script type='text/javascript' src='/static/js/jquery.min.js'></script>
     </head>
     <body>
+        <script type='text/javascript'>
+            function toggle_list(list_id) {
+                var li_list = $('#' + list_id + ' li');
+
+                if (li_list[0].style['display'] == 'none') {
+                    li_list.show();
+                    $('#' + list_id + '_link')[0].innerHTML = '-';
+                } else {
+                    li_list.hide();
+                    $('#' + list_id + '_link')[0].innerHTML = '+';
+                }
+            }
+        </script>
+
         <%include file="login.mako" args="username='${username}'"/>
         % if 'error' in kwargs:
             <h2 class='error'>
@@ -37,16 +52,30 @@
                 % endif
             % endfor
             </select></p>
+            <ul>
             % for component, metrics in data_sources.iteritems():
-                <p>${component}</p>
+                % if component in active_components:
+                    <li><a id='${component}_link' href='javascript:void(0)' onClick="toggle_list('${component}')">-</a> ${component}</li>
+                % else:
+                    <li><a id='${component}_link' href='javascript:void(0)' onClick="toggle_list('${component}')">+</a> ${component}</li>
+                % endif
+                <ul id='${component}'>
                 % for metric in metrics:
-                    % if '%s|%s' % (component, metric) in kwargs:
-                        <input type='checkbox' name='${component}|${metric}' value='true' checked='checked'/> ${metric}<br />
+                    % if component in active_components:
+                        <li>
                     % else:
-                        <input type='checkbox' name='${component}|${metric}' value='true' /> ${metric}<br />
+                        <li style='display: none;'>
                     % endif
+                    % if '%s|%s' % (component, metric) in kwargs:
+                        <input type='checkbox' name='${component}|${metric}' value='true' checked='checked'/> ${metric}
+                    % else:
+                            <input type='checkbox' name='${component}|${metric}' value='true' /> ${metric}
+                    % endif
+                    </li>
                 % endfor
+                </ul>
             % endfor
+            </ul>
             <br />
             <input type='submit' value='save' />
         </form>

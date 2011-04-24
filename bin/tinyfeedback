@@ -5,7 +5,8 @@ import tinyfeedback.webserver
 PORT = 8000
 DATA_STORE = 'mysql://tinyfeedback@localhost/tinyfeedback'
 
-LOG_PATH = '/var/log/tinyfeedback.log'
+LOG_PATH = ''
+#LOG_PATH = '/var/log/tinyfeedback.log'
 LOG_LEVEL = 'DEBUG'
 
 

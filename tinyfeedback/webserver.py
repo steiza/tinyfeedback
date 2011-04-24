@@ -146,17 +146,21 @@ class Controller(object):
             request.redirect('/')
             return ''
 
-        graph_type = request.args.get('graph_type', '')
-
         data_sources = model.get_data_sources(self.__SessionMaker)
 
         for each_metric in data_sources.itervalues():
             each_metric.sort()
 
+        active_components = \
+                [each.split('|')[0] for each in request.args if '|' in each]
+
+        graph_type = request.args.get('graph_type', '')
+
         template = self.__template_lookup.get_template('edit.mako')
 
         return template.render(kwargs=request.args, data_sources=data_sources,
-                username=username, timescales=self.timescales,
+                active_components=active_components, username=username,
+                timescales=self.timescales,
                 graph_types=self.graph_types).encode('utf8')
 
     @straighten_out_request
@@ -424,6 +428,9 @@ def set_up_server(port, data_store, log_path, log_level):
 
     factory = Site(dispatcher)
     reactor.listenTCP(port, factory)
+
+    log.info('tiny feedback running on port %d', port)
+
     reactor.run()
 
 
