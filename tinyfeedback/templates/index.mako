@@ -1,9 +1,18 @@
 <html>
     <head>
         <link href='/static/css/style.css' type='text/css' rel='stylesheet' />
+        <script type='text/javascript' src='/static/js/jquery.min.js'></script>
         <script type='text/javascript' src='static/js/protovis-r3.2.js'></script>
+        <script type='text/javascript' src='/static/js/jquery-ui.min.js'></script>
     </head>
     <body>
+        <script>
+            $(function() {
+                $('#sortable').sortable();
+                $('#sortable').disableSelection();
+            });
+        </script>
+
         <%include file="protovis.mako"/>
         <%include file="login.mako" args="username='${username}'"/>
 
@@ -15,44 +24,35 @@
                 <a href='/?edit=true'>edit</a>
             % endif
             </h2>
-            <table class='graph'>
             % if len(graphs) == 0:
-                <tr><td>Want custom graphs? ^ Click up there!</td></tr>
+                Want custom graphs? ^ Click up there!
             % endif
+            <ul id='sortable'>
             % for index, (graph_name, graph_name_urlencoded, graph_type, graph_type_urlencoded, timescale, time_per_data_point, fields_urlencoded, line_names, data, current_time, length, max_value) in enumerate(graphs):
-                % if index % 2 == 0:
-                    <tr>
-                % endif
-                <td>
+                <li>
                     <h3>${graph_name}</h3>
                     % if edit is not None:
                         <a href='/edit?title=${graph_name_urlencoded}&timescale=${timescale}&graph_type=${graph_type_urlencoded}&${fields_urlencoded}'>edit</a>
                         <a href='/edit?title=${graph_name_urlencoded}&delete=true'>remove</a>
                     % endif
                     <a href='/graph?title=${graph_name_urlencoded}&timescale=${timescale}&graph_type=${graph_type_urlencoded}&${fields_urlencoded}'>
-                    <script type='text/javascript+protovis'>
-                        var line_names = ${line_names};
-                        var data = ${data};
-                        var max = ${max_value};
-                        var length = ${length};
-                        var graph_type = '${graph_type}';
-                        var time = pv.range(0, ${length}).map(function(x) (
-                                new Date(${current_time} + (x - length)*${time_per_data_point})
-                                ));
+                        <script type='text/javascript+protovis'>
+                            var line_names = ${line_names};
+                            var data = ${data};
+                            var max = ${max_value};
+                            var length = ${length};
+                            var graph_type = '${graph_type}';
+                            var time = pv.range(0, ${length}).map(function(x) (
+                                    new Date(${current_time} + (x - length)*${time_per_data_point})
+                                    ));
 
-                        custom_graph(line_names, data, time, max, graph_type);
-                    </script>
+                            custom_graph(line_names, data, time, max, graph_type);
+                        </script>
                     </a>
-                    <br />
-                </td>
-                % if index % 2 != 0:
-                    </tr>
-                %endif
+                </li>
             % endfor
-            % if len(graphs) % 2 != 0:
-                </tr>
-            % endif
-            </table>
+            </ul>
+            <div id='post_float' />
             <br />
         % endif
         <h2><a class='nav' href='/'>tf</a></h2>

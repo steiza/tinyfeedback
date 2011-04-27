@@ -35,6 +35,20 @@ table.sparkline td {
     padding: 5px;
 }
 
-table.graph td {
+#sortable {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+}
+
+#sortable li {
+    font-size: small;
     padding: 20px;
+    float: left;
+    width: 610px;
+    height: 250px;
+}
+
+#post_float {
+    clear: both;
 }
