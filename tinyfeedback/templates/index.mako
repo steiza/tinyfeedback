@@ -6,12 +6,16 @@
         <script type='text/javascript' src='/static/js/jquery-ui.min.js'></script>
     </head>
     <body>
-        <script>
-            $(function() {
-                $('#sortable').sortable();
-                $('#sortable').disableSelection();
-            });
-        </script>
+         <script>
+             function on_update(event, ui) {
+                 $('#sortable').children().remove('script');
+             }
+
+             $(function() {
+                 $('#sortable').sortable({update: on_update});
+                 $('#sortable').disableSelection();
+             });
+         </script>
 
         <%include file="protovis.mako"/>
         <%include file="login.mako" args="username='${username}'"/>
