@@ -1,6 +1,7 @@
 <script type='text/javascript+protovis'>
     function custom_graph(line_name, data, time, max, graph_type) {
         var width = 400;
+        var panel_height = 230;
         var height = 150;
 
         var colors = ['#ff0000', '#ff8000', '#fff000', '#00ff00', '#00ffff',
@@ -8,16 +9,16 @@
 
         var vis = new pv.Panel()
                 .width(width)
-                .height(height)
+                .height(panel_height)
                 .bottom(25)
                 .left(40)
                 .right(170)
                 .top(25);
 
         // HACK: to smooth out graphs that have 0 for every other value
-        for(var i = 0;i<data.length;i++) {
-            for(var j = 0;j<data[i].length;j++) {
-                if(j >0 && j + 2 < data[i].length){
+        for(var i = 0; i < data.length; i++) {
+            for(var j = 0; j < data[i].length; j++) {
+                if(j > 0 && j + 2 < data[i].length) {
                     if(data[i][j] == 0 &&
                         (
                             ( data[i][j-1] != 0 && data[i][j+1] != 0 ) ||
@@ -31,17 +32,20 @@
             }
         }
 
+        if (max == 0) {
+            max = 1;
+        }
+
         var x = pv.Scale.linear(time).range(0, width);
-        var y = pv.Scale.linear(0, max).range(0, height);
+        var y = pv.Scale.linear(0, max).range(panel_height-height, panel_height);
 
         // Add x-axis
         vis.add(pv.Rule)
-                .bottom(0)
+                .bottom(panel_height-height)
                 .strokeStyle('#000')
                 .add(pv.Rule)
                 .data(x.ticks())
                 .left(x)
-                .bottom(1)
                 .strokeStyle('#eee')
                 .anchor('bottom').add(pv.Label)
                 .text(x.tickFormat);
@@ -57,8 +61,8 @@
         // Add legend
         vis.add(pv.Dot)
                 .data(line_names)
-                .right(-15)
-                .top(function() this.index * 14)
+                .left(function() -15 + (this.index % 2) * (width / 2 + 20))
+                .top(function() height + 25 + (this.index - this.index % 2) * 7)
                 .size(8)
                 .strokeStyle(null)
                 .fillStyle(function() colors[this.index % colors.length])
@@ -67,9 +71,9 @@
         if(graph_type == "stacked") {
             vis.add(pv.Layout.Stack)
             .layers(data)
-            //.values(line_names)
             .x(function() this.index * width / (length-1))
-            .y(function(d) d / (max) * height )
+            .y(function(d) d / max * height)
+            .bottom(panel_height - height)
             .order('reverse')
             .layer.add(pv.Area)
                 .fillStyle(function(d){
@@ -83,11 +87,10 @@
                     .data(data[i])
                     .strokeStyle(colors[i % colors.length])
                     .lineWidth(1)
-                    .bottom(function(y) y * height / max)
+                    .bottom(function(y) panel_height - height + (y * height / max))
                     .left(function(x) this.index * width / (length-1));
             }
         }
-
 
         vis.render();
     }
