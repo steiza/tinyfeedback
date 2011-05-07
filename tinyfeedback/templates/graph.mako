@@ -8,7 +8,7 @@
         <%include file="login.mako" args="username='${username}'"/>
 
         % if username is not None:
-            % for (graph_name, graph_name_urlencoded, graph_type, graph_type_urlencoded, timescale, time_per_data_point, fields_urlencoded, line_names, data, current_time, length, max_value) in graph:
+            % for (graph_id, graph_name, graph_name_urlencoded, graph_type, graph_type_urlencoded, timescale, time_per_data_point, fields_urlencoded, line_names, data, current_time, length, max_value) in graph:
                 <form action='/edit' method='post'>
                     <input type='hidden' name='title' value='${graph_name}'/>
                     <input type='hidden' name='timescale' value='${timescale}'/>
@@ -25,7 +25,7 @@
         <table class='graph'>
             <tr>
                 <td>
-                % for (graph_name, graph_name_urlencoded, graph_type, graph_type_urlencoded, timescale, time_per_data_point, fields_urlencoded, line_names, data, current_time, length, max_value) in graph:
+                % for (graph_id, graph_name, graph_name_urlencoded, graph_type, graph_type_urlencoded, timescale, time_per_data_point, fields_urlencoded, line_names, data, current_time, length, max_value) in graph:
                     <h3>${graph_name}</h3>
                     <script type='text/javascript+protovis'>
                         var line_names = ${line_names};

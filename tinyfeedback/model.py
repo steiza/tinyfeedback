@@ -35,7 +35,9 @@ def ensure_user_exists(SessionMaker, username):
     return user_id
 
 # Helper methods for CustomGraph
-def get_data_for_graph(SessionMaker, title, graph_type, fields, timescale):
+def get_data_for_graph(SessionMaker, graph_id, title, graph_type, fields,
+        timescale):
+
     session = SessionMaker()
 
     title_urlencoded = urllib.quote_plus(title)
@@ -95,9 +97,10 @@ def get_data_for_graph(SessionMaker, title, graph_type, fields, timescale):
     if graph_type == 'stacked':
         max_value = max_value_stacked
 
-    return (title, title_urlencoded, graph_type, graph_type_urlencoded,
-            timescale, time_per_data_point, fields_urlencoded, line_names,
-            data, current_time, length, max_value)
+    return (graph_id, title, title_urlencoded, graph_type,
+            graph_type_urlencoded, timescale, time_per_data_point,
+            fields_urlencoded, line_names, data, current_time, length,
+            max_value)
 
 def get_graphs(SessionMaker, user_id):
     session = SessionMaker()
@@ -111,15 +114,29 @@ def get_graphs(SessionMaker, user_id):
 
     for each_row in graph_rows:
         graph_name = each_row.title
-        graph_type = each_row.graph_type or "line"
+        graph_type = each_row.graph_type or 'line'
         timescale = each_row.timescale
+        graph_id = each_row.id
 
         fields = simplejson.loads(each_row.fields)
 
-        graphs.append(get_data_for_graph(SessionMaker, graph_name, graph_type,
-                fields, timescale))
+        graphs.append(get_data_for_graph(SessionMaker, graph_id, graph_name,
+                graph_type, fields, timescale))
 
     return graphs
+
+def update_ordering(SessionMaker, user_id, new_ordering):
+    session = SessionMaker()
+
+    for index, graph_id in enumerate(new_ordering):
+        graph = session.query(CustomGraph).filter(CustomGraph.user_id == user_id
+                ).filter(CustomGraph.id == int(graph_id)).one()
+
+        graph.ordering = index
+
+        session.merge(graph)
+
+    session.commit()
 
 def update_graph(SessionMaker, title, user_id, timescale, fields, graph_type):
     session = SessionMaker()

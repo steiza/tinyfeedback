@@ -6,16 +6,27 @@
         <script type='text/javascript' src='/static/js/jquery-ui.min.js'></script>
     </head>
     <body>
-         <script>
-             function on_update(event, ui) {
-                 $('#sortable').children().remove('script');
-             }
+        % if edit is not None:
+            <script>
+                function on_update(event, ui) {
+                    // HACK: get around bug in jQuery UI that adds script elements
+                    $('#sortable').children().remove('script');
 
-             $(function() {
-                 $('#sortable').sortable({update: on_update});
-                 $('#sortable').disableSelection();
-             });
-         </script>
+                    // Save the new ordering
+                    var new_ordering = $.map($('#sortable li'), function (each) {
+                        return $(each).attr('id');
+                    });
+
+                    $.post('/graph_ordering', {'new_ordering':
+                            '[' + new_ordering.join(', ') + ']'});
+                }
+
+                $(function() {
+                    $('#sortable').sortable({update: on_update});
+                    $('#sortable').disableSelection();
+                });
+            </script>
+        % endif
 
         <%include file="protovis.mako"/>
         <%include file="login.mako" args="username='${username}'"/>
@@ -32,14 +43,14 @@
                 Want custom graphs? ^ Click up there!
             % endif
             <ul id='sortable'>
-            % for index, (graph_name, graph_name_urlencoded, graph_type, graph_type_urlencoded, timescale, time_per_data_point, fields_urlencoded, line_names, data, current_time, length, max_value) in enumerate(graphs):
-                <li>
+            % for index, (graph_id, graph_name, graph_name_urlencoded, graph_type, graph_type_urlencoded, timescale, time_per_data_point, fields_urlencoded, line_names, data, current_time, length, max_value) in enumerate(graphs):
+                <li id='${graph_id}'>
                     <h3>${graph_name}</h3>
                     % if edit is not None:
                         <a href='/edit?title=${graph_name_urlencoded}&timescale=${timescale}&graph_type=${graph_type_urlencoded}&${fields_urlencoded}'>edit</a>
                         <a href='/edit?title=${graph_name_urlencoded}&delete=true'>remove</a>
                     % endif
-                    <a href='/graph?title=${graph_name_urlencoded}&timescale=${timescale}&graph_type=${graph_type_urlencoded}&${fields_urlencoded}'>
+                    <a href='/graph?graph_id=${graph_id}&title=${graph_name_urlencoded}&timescale=${timescale}&graph_type=${graph_type_urlencoded}&${fields_urlencoded}'>
                         <script type='text/javascript+protovis'>
                             var line_names = ${line_names};
                             var data = ${data};

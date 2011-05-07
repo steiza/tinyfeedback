@@ -11,6 +11,7 @@ import urllib
 
 import mako.template
 import mako.lookup
+import simplejson
 import sqlalchemy
 from twisted.internet import reactor
 from twisted.web.server import Site
@@ -205,34 +206,52 @@ class Controller(object):
     def get_graph(self, request):
         username = request.getCookie('username')
 
+        graph_id = request.args.get('graph_id', '')
         title = request.args.get('title', '')
         graph_type = request.args.get('graph_type', '')
         timescale = request.args.get('timescale', '')
 
-        if title == '' or graph_type == '' or timescale == '' or \
-                len(request.args) == 3:
-
-            request.setResponseCode(400)
-            request.finish()
+        for each in [graph_id, title, graph_type, timescale]:
+            if each == '':
+                request.setResponseCode(400)
+                return ''
 
         keys = request.args.keys()
 
-        index = keys.index('title')
-        del keys[index]
+        for each in ['graph_id', 'title', 'graph_type', 'timescale']:
+            index = keys.index(each)
+            del keys[index]
 
-        index = keys.index('graph_type')
-        del keys[index]
-
-        index = keys.index('timescale')
-        del keys[index]
-
-        graph = model.get_data_for_graph(self.__SessionMaker, title,
+        graph = model.get_data_for_graph(self.__SessionMaker, graph_id, title,
                 graph_type, keys, timescale)
 
         template = self.__template_lookup.get_template('graph.mako')
 
         return template.render(username=username, title=title,
                 graph_type=graph_type, components=keys, graph=[graph]).encode('utf8')
+
+    # AJAX calls to manipulate user state
+    @straighten_out_request
+    def post_graph_ordering(self, request):
+        log.debug('post graph ordering %s', request.args)
+
+        new_ordering = request.args.get('new_ordering', '')
+        user_id = None
+
+        username = request.getCookie('username')
+        if username is not None:
+            user_id = model.ensure_user_exists(self.__SessionMaker, username)
+
+        if new_ordering == '' or user_id is None:
+            request.setResponseCode(400)
+            return ''
+
+        new_ordering = simplejson.loads(new_ordering)
+
+        model.update_ordering(self.__SessionMaker, user_id, new_ordering)
+
+        request.setResponseCode(200)
+        return ''
 
     # API for dealing with data
     @straighten_out_request
@@ -394,6 +413,11 @@ def set_up_server(port, data_store, log_path, log_level):
 
     dispatcher.connect('get_graph', '/graph', controller=controller,
             action='get_graph', conditions=dict(method=['GET']))
+
+    # AJAX calls to manipulate user state
+    dispatcher.connect('post_graph_ordering', '/graph_ordering',
+            controller=controller, action='post_graph_ordering',
+            conditions=dict(method=['POST']))
 
     # API for dealing with data
     dispatcher.connect('post_data', '/data/:component', controller=controller,
