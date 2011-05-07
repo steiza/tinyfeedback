@@ -34,7 +34,7 @@
         % if username is not None:
             <h2>dashboard
             % if edit is not None:
-                <a href='/edit'>add</a> <a href='/'>cancel</a>
+                <a href='/edit'>add</a> <a href='/'>go back</a> <span class='hint'>Drag graphs to re-order them!</span>
             % else:
                 <a href='/?edit=true'>edit</a>
             % endif
