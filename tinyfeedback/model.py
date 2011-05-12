@@ -55,6 +55,9 @@ def get_data_for_graph(SessionMaker, graph_id, title, graph_type, fields,
     max_value = 0
     max_value_stacked = 0
 
+    # sort the fields
+    fields.sort()
+
     for each_field in fields:
         component, metric = each_field.split('|')[:2]
 
