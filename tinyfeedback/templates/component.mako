@@ -2,9 +2,22 @@
     <head>
         <link href='/static/css/style.css' type='text/css' rel='stylesheet' />
         <script type='text/javascript' src='/static/js/jquery.min.js'></script>
+        <script type='text/javascript' src='/static/js/jquery.confirm-1.3.js'></script>
         <script type='text/javascript' src='/static/js/jquery.sparkline.min.js'></script>
 
         <script type='text/javascript'>
+            $(document).ready(function() {
+                $('#delete_old').confirm({
+                    msg: 'Really delete old metrics? ',
+                    dialogShow: 'fadeIn',
+                    dialogSpeed: 'slow',
+                    buttons: {
+                        wrapper: '<button></button>',
+                        separator: ' ',
+                    }
+                });
+            });
+
             $(function() {
                 % for metric, metric_sanitized, data, current, min, max in metrics:
                     var data = ${data};
@@ -28,6 +41,12 @@
             % endif
         % endfor
         </div>
+        <br />
+        <form action='/view/${component}' method='get'>
+            <input type='hidden' name='delete_older_than_a_week' value='true' />
+            <input type='hidden' name='ts' value='${timescale}' />
+            <input type='submit' id='delete_old' value='Delete metrics older than a week' />
+        </form>
         <table class='sparkline'>
             <tr>
                 <td></td>

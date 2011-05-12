@@ -94,6 +94,21 @@ class Controller(object):
 
     @straighten_out_request
     def get_component(self, request, component):
+        if request.args.get('delete_older_than_a_week', None) is not None:
+            model.clean_out_metrics_older_than_a_week(self.__SessionMaker,
+                    component)
+
+            request_args = request.args
+            del request_args['delete_older_than_a_week']
+
+            redirect = '/view/%s' % component.encode('utf8')
+            if len(request_args) > 0:
+                redirect += '?%s' % urllib.urlencode(request_args)
+
+            request.setResponseCode(303)
+            request.redirect(redirect)
+            return ''
+
         username = request.getCookie('username')
 
         timescale = request.args.get('ts', '6h')
