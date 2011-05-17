@@ -403,7 +403,6 @@ def set_up_server(port, data_store, log_path, log_level):
             pool_size = 20,
             max_overflow = -1,
             pool_recycle = 1, # Re-open closed connections to db after 1 second
-            convert_unicode = True,
             )
 
     SessionMaker = model.bind_engine(engine)
