@@ -55,6 +55,9 @@ def get_data_for_graph(SessionMaker, graph_id, title, graph_type, fields,
     max_value = 0
     max_value_stacked = 0
 
+    # sort the fields
+    fields.sort()
+
     for each_field in fields:
         component, metric = each_field.split('|')[:2]
 
@@ -207,6 +210,17 @@ def get_data_sources(SessionMaker):
 
     return data_sources
 
+def clean_out_metrics_older_than_a_week(SessionMaker, component):
+    session = SessionMaker()
+
+    rows = session.query(Data).filter(Data.component == component).filter(
+            Data.data_6h == str([0] * 360)).filter(Data.data_36h == str(
+                [0] * 432)).filter(Data.data_1w == str([0] * 336)).all()
+
+    for each in rows:
+        session.delete(each)
+
+    session.commit()
 
 # SQLAlchemy objects
 class User(DatabaseObject):
@@ -282,11 +296,11 @@ class Data(DatabaseObject):
         self.metric = metric
         self.last_updated = self._get_time_slot()
 
-        self._data_6h  = [0 for i in xrange(360)] # Every 1 min
-        self._data_36h = [0 for i in xrange(432)] # Every 5 min
-        self._data_1w  = [0 for i in xrange(336)] # Every 30 min
-        self._data_1m  = [0 for i in xrange(360)] # Every 2 hours
-        self._data_6m  = [0 for i in xrange(360)] # Every 12 hours
+        self._data_6h  = [0] * 360 # Every 1 min
+        self._data_36h = [0] * 432 # Every 5 min
+        self._data_1w  = [0] * 336 # Every 30 min
+        self._data_1m  = [0] * 360 # Every 2 hours
+        self._data_6m  = [0] * 360 # Every 12 hours
 
         self.data_6h = simplejson.dumps(self._data_6h)
         self.data_36h = simplejson.dumps(self._data_36h)

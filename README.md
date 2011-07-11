@@ -16,7 +16,7 @@
 **Q**: What do I need to get started?
 
 **A**:
-A *nix machine with mysql; check out lib/python/tinyfeedback/config.py for details.
+A *nix machine with mysql. The config is currently in two place (will fix in the next release, sorry about that!) the port and mysql connection string is in bin/tinyfeedback, and the port and host are in tinyfeeback/helper.py.
 
 The Mako, Sqlalchemy, Simplejson, and Routes Python libraries.
 

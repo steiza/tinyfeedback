@@ -6,11 +6,12 @@ from twisted.web.client import getPage
 import config
 
 
-def send_once(component, data_dict):
-    host = tinyfeedback.config.HOST
-    port = tinyfeedback.config.PORT
+PORT = 8000
+HOST = '127.0.0.1'
 
-    url = 'http://%s:%s/data/%s' % (host, port, component)
+
+def send_once(component, data_dict):
+    url = 'http://%s:%s/data/%s' % (HOST, PORT, component)
 
     try:
         urllib.urlopen(url, data=urllib.urlencode(data_dict))
@@ -21,10 +22,7 @@ def send_once(component, data_dict):
 
 
 def send_once_using_twisted(component, data_dict):
-    host = tinyfeedback.config.HOST
-    port = tinyfeedback.config.PORT
-
-    url = 'http://%s:%s/data/%s' % (host, port, component)
+    url = 'http://%s:%s/data/%s' % (HOST, PORT, component)
 
     d = getPage(
         str(url),
@@ -40,10 +38,7 @@ def send_once_using_twisted(component, data_dict):
 def tail_monitor(component, log_filename, line_callback_func, data_arg={},
         format_data_callback_func=None, interval=60):
 
-    host = tinyfeedback.config.HOST
-    port = tinyfeedback.config.PORT
-
-    url = 'http://%s:%s/data/%s' % (host, port, component)
+    url = 'http://%s:%s/data/%s' % (HOST, PORT, component)
 
     initial_data = data_arg
     current_data = data_arg.copy()
