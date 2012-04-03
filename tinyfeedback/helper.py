@@ -3,8 +3,6 @@ import time
 import urllib
 from twisted.web.client import getPage
 
-import config
-
 
 PORT = 8000
 HOST = '127.0.0.1'
