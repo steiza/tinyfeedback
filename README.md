@@ -24,7 +24,7 @@ The Mako, Sqlalchemy, Simplejson, and Routes Python libraries.
 **Q**: How do I get started?
 
 **A**:
-Edit config.py. Make sure the databases and users implied by DATA_STORE exist.  This is a SQLAlchemy create_engine pseudo_url.
+Edit bin/tinyfeedback and also probably tinyfeedback/helper.py as described in the previous Q&A. Make sure the databases and users implied by DATA_STORE exist. This is a SQLAlchemy create_engine pseudo_url.
 
 Run bin/tinyfeedback-ctl start. Pause for a moment to reflect on how your life might be changed. Then put some data in to it. Maybe run something like:
 
