@@ -45,8 +45,6 @@
             % for graph_type in graph_types:
                 % if 'graph_type' in kwargs and graph_type == kwargs['graph_type']:
                     <option selected value=${graph_type}>${graph_type}</option>
-                % elif 'graph_type' not in  kwargs:
-                    <option selected value='line'>line</option>
                 % else:
                     <option value=${graph_type}>${graph_type}</option>
                 % endif
