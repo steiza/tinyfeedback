@@ -335,6 +335,7 @@ class Controller(object):
             session.delete(each)
 
         session.commit()
+        return ''
 
     # Dealing with login
     @straighten_out_request
