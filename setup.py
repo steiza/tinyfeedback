@@ -1,6 +1,6 @@
 from distutils.core import setup
 
-setup(name='tiny_feedback',
+setup(name='tinyfeedback',
       version='0.1',
       author='Zach Steindler',
       author_email='steiza@gmail.com',
