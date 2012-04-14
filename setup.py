@@ -1,7 +1,7 @@
 from distutils.core import setup
 
 setup(name='tinyfeedback',
-      version='0.1',
+      version='0.1.1',
       author='Zach Steindler',
       author_email='steiza@gmail.com',
       url='https://github.com/steiza/tinyfeedback',
