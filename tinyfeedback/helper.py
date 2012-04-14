@@ -1,3 +1,4 @@
+import platform
 import subprocess
 import time
 import urllib
@@ -41,7 +42,11 @@ def tail_monitor(component, log_filename, line_callback_func, data_arg={},
     initial_data = data_arg
     current_data = data_arg.copy()
 
-    tail_process = subprocess.Popen(['tail', '--follow=name', log_filename],
+    if (is_osx()):
+        arguments = '-F'
+    else:
+        arguments = '--follow=name'
+    tail_process = subprocess.Popen(['tail', arguments, log_filename],
             stdout=subprocess.PIPE)
 
     last_update = time.time()
@@ -72,3 +77,6 @@ def tail_monitor(component, log_filename, line_callback_func, data_arg={},
                     pass
 
                 current_data = initial_data.copy()
+
+def is_osx():
+    return (platform.system() == 'Darwin')
