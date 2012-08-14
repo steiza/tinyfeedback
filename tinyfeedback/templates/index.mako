@@ -18,7 +18,7 @@
                     });
 
                     $.post('/graph_ordering', {'new_ordering':
-                            '[' + new_ordering.join(', ') + ']'});
+                            JSON.stringify(new_ordering)});
                 }
 
                 $(function() {
@@ -30,11 +30,12 @@
 
         <%include file="protovis.mako"/>
         <%include file="login.mako" args="username='${username}'"/>
+        <h2><a class='nav' href='/'>tf</a><h2>
 
         % if username is not None:
             <h2>dashboard
             % if edit is not None:
-                <a href='/edit'>add</a> <a href='/'>go back</a> <span class='hint'>Drag graphs to re-order them!</span>
+                <a href='/edit'>new graph</a> <a href='/'>go back</a> <span class='hint'>Drag graphs to re-order them!</span>
             % else:
                 <a href='/?edit=true'>edit</a>
             % endif
@@ -43,14 +44,14 @@
                 Want custom graphs? ^ Click up there!
             % endif
             <ul id='sortable'>
-            % for index, (graph_id, graph_name, graph_name_urlencoded, graph_type, graph_type_urlencoded, timescale, time_per_data_point, fields_urlencoded, line_names, data, current_time, length, max_value) in enumerate(graphs):
-                <li id='${graph_id}'>
+            % for index, (graph_name, graph_name_urlencoded, graph_type, graph_type_urlencoded, timescale, time_per_data_point, line_names, data, current_time, length, max_value) in enumerate(graphs):
+                <li id='${graph_name}'>
                     <h3>${graph_name}</h3>
                     % if edit is not None:
-                        <a href='/edit?title=${graph_name_urlencoded}&timescale=${timescale}&graph_type=${graph_type_urlencoded}&${fields_urlencoded}'>edit</a>
+                        <a href='/edit?title=${graph_name_urlencoded}&timescale=${timescale}&graph_type=${graph_type_urlencoded}'>edit</a>
                         <a href='/edit?title=${graph_name_urlencoded}&delete=true'>remove</a>
                     % endif
-                    <a href='/graph?graph_id=${graph_id}&title=${graph_name_urlencoded}&timescale=${timescale}&graph_type=${graph_type_urlencoded}&${fields_urlencoded}'>
+                    <a href='/graph/${username}/${graph_name_urlencoded}?timescale=${timescale}&graph_type=${graph_type_urlencoded}'>
                         <script type='text/javascript+protovis'>
                             var line_names = ${line_names};
                             var data = ${data};
@@ -70,7 +71,8 @@
             <div id='post_float' />
             <br />
         % endif
-        <h2><a class='nav' href='/'>tf</a></h2>
+
+        <h2><a class='nav' name='components'>Components</a></h2>
         <ul>
             % for each in components:
                 <li><a href='/view/${each}'>${each}</a></li>

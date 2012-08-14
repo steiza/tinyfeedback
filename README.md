@@ -16,15 +16,15 @@
 **Q**: What do I need to get started?
 
 **A**:
-A *nix machine with mysql. The config is currently in two place (will fix in the next release, sorry about that!) the port and mysql connection string is in bin/tinyfeedback, and the port and host are in tinyfeeback/helper.py.
+A *nix machine with redis. The config is currently in two place: you can specify the port the webserver listens on in tinyfeedback/helper.py and you can tweak the logging in bin/tinyfeedback.
 
-The Mako, Sqlalchemy, Simplejson, and Routes Python libraries.
+To install the dependencies, simply run "pip install -r requirements.txt"
 
 <br />
 **Q**: How do I get started?
 
 **A**:
-Edit bin/tinyfeedback and also probably tinyfeedback/helper.py as described in the previous Q&A. Make sure the databases and users implied by DATA_STORE exist. This is a SQLAlchemy create_engine pseudo_url.
+Edit bin/tinyfeedback and tinyfeedback/helper.py to tweak your config as described in the previous Q&A. Make sure redis is running on the machine.
 
 Run bin/tinyfeedback-ctl start. Pause for a moment to reflect on how your life might be changed. Then put some data in to it. Maybe run something like:
 
@@ -77,7 +77,7 @@ Custom graphs can be set up at the /edit URL.
                 )
 
 <br />
-**Q**: How do I get rid of your stupid really_important_server example?
+**Q**: How do I get rid of the component created by your really_important_server example?
 
 **A**: Run something like:
 

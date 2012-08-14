@@ -24,11 +24,12 @@ def send_once_using_twisted(component, data_dict):
     url = 'http://%s:%s/data/%s' % (HOST, PORT, component)
 
     d = getPage(
-        str(url),
-        method='POST',
-        postdata=urllib.urlencode(data_dict),
-        headers={'Content-Type':'application/x-www-form-urlencoded'},
-        timeout=35)
+            str(url),
+            method='POST',
+            postdata=urllib.urlencode(data_dict),
+            headers={'Content-Type':'application/x-www-form-urlencoded'},
+            timeout=10,
+            )
 
     # swallow errors
     d.addErrback(lambda x: None)
@@ -42,10 +43,11 @@ def tail_monitor(component, log_filename, line_callback_func, data_arg={},
     initial_data = data_arg
     current_data = data_arg.copy()
 
-    if (is_osx()):
+    if is_osx():
         arguments = '-F'
     else:
         arguments = '--follow=name'
+
     tail_process = subprocess.Popen(['tail', arguments, log_filename],
             stdout=subprocess.PIPE)
 
@@ -77,6 +79,7 @@ def tail_monitor(component, log_filename, line_callback_func, data_arg={},
                     pass
 
                 current_data = initial_data.copy()
+
 
 def is_osx():
     return (platform.system() == 'Darwin')

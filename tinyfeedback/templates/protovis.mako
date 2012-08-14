@@ -1,11 +1,14 @@
 <script type='text/javascript+protovis'>
-    function custom_graph(line_name, data, time, max, graph_type) {
-        var width = 400;
-        var panel_height = 230;
+    function custom_graph(line_name, data, time, max, graph_type, width, height) {
+        var width = width || 400;
+        var panel_height = height || 250;
         var height = 150;
 
+
         var colors = ['#ff0000', '#ff8000', '#fff000', '#00ff00', '#00ffff',
-                '#0000ff', '#ff00ff', '#ff8080', '#814100', '#808080', '#000000'];
+                '#0000ff', '#ff00ff', '#ff8080', '#814100', '#808080', '#000000', 
+                '#aa00cc', '#ee00ee', '#00eebb', '#ff99dd', '#55bb00',
+                '#eeeeff', '#ee00cc', '#44bbff', '#00ff88', '#dddddd' , '#880000'];
 
         var vis = new pv.Panel()
                 .width(width)
@@ -15,20 +18,11 @@
                 .right(170)
                 .top(25);
 
-        // HACK: to smooth out graphs that have 0 for every other value
+        // HACK: if last value is 0, set it to the previous value so graphs don't always drop off to 0
         for(var i = 0; i < data.length; i++) {
-            for(var j = 0; j < data[i].length; j++) {
-                if(j > 0 && j + 2 < data[i].length) {
-                    if(data[i][j] == 0 &&
-                        (
-                            ( data[i][j-1] != 0 && data[i][j+1] != 0 ) ||
-                            ( data[i][j-1] != 0 && data[i][j+2] != 0 )
-                        )
-
-                        ){
-                        data[i][j] = data[i][j-1];
-                    }
-                }
+            var len = data[i].length;
+            if(data[i][len-1] == 0 && data[i][len-2] != 0) {
+                data[i][len-1] = data[i][len-2];
             }
         }
 
@@ -74,7 +68,6 @@
             .x(function() this.index * width / (length-1))
             .y(function(d) d / max * height)
             .bottom(panel_height - height)
-            .order('reverse')
             .layer.add(pv.Area)
                 .fillStyle(function(d){
                     return colors[this.parent.index % colors.length]

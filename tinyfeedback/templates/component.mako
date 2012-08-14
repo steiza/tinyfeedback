@@ -19,16 +19,16 @@
             });
 
             $(function() {
-                % for metric, metric_sanitized, data, current, min, max in metrics:
-                    var data = ${data};
-                    $('.${metric_sanitized}').sparkline(data, {width: '250px'});
+                % for index, (metric, data, current, min, max) in enumerate(metrics):
+                    var data_${index} = ${data};
+                    $('.data_${index}').sparkline(data_${index}, {width: '250px'});
                 % endfor
             });
         </script>
     </head>
     <body>
         <%include file="login.mako" args="username='${username}'"/>
-        <h2><a class='nav' href='/'>tf</a> :: ${component}</h2>
+        <h2><a class='nav' href='/'>tf</a> :: <a class='nav' href='/#components'>components</a> :: ${component}</h2>
         <div class='timescale'>
         % for each_timescale in timescales:
             % if timescale == each_timescale:
@@ -55,10 +55,10 @@
                 <td><b>min</b></td>
                 <td><b>max</b></td>
             </tr>
-            % for metric, metric_sanitized, data, current, min, max in metrics:
+            % for index, (metric, data, current, min, max) in enumerate(metrics):
                 <tr>
-                    <td>${metric}</td>
-                    <td><span class='${metric_sanitized}'>Loading...</span></td>
+                    <td>${cgi.escape(metric)}</td>
+                    <td><span class='data_${index}'>Loading...</span></td>
                     <td>${current}</td>
                     <td>${min}</td>
                     <td>${max}</td>

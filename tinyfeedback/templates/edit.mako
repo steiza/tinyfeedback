@@ -16,6 +16,43 @@
                     $('#' + list_id + '_link')[0].innerHTML = '+';
                 }
             }
+
+            $(document).ready(function(){
+                var refresh_timeout = null;
+
+                var filter = function() {
+                    var value = $(this).val();
+                    clearTimeout(refresh_timeout);
+                    refresh_timeout = setTimeout( function() {
+                        $(".components li").each( function() {
+                            var item = $(this);
+                            var chk = $("input", item)[0]
+                            if(value == '' || item.html().match(value) || (chk && chk.checked)) {
+                                item.show();
+                            } else {
+                                item.hide();
+                            }
+                        });
+                    }, 300);
+                }
+
+                $(".filter").change(filter);
+                $(".filter").keydown(filter);
+
+                var update_wildcard = function() {
+                    if ($(".wildcard").val() != '') {
+                        $(".wildcard_hidden").attr('name', $(".wildcard").val());
+                        $(".wildcard_hidden").val("true");
+                    } else {
+                        $(".wildcard_hidden").attr('name', '');
+                        $(".wildcard_hidden").val("");
+                    }
+                }
+
+                $(".wildcard").change(update_wildcard);
+                $(".wildcard").keydown(update_wildcard);
+            });
+
         </script>
 
         <%include file="login.mako" args="username='${username}'"/>
@@ -25,11 +62,12 @@
                 You must specify a title
             % elif kwargs['error'] == 'no_fields':
                 You must specify at least one field
+            % elif kwargs['error'] == 'bad_wildcard_filter':
+                Wildcards must contain a "*" and a "|"
             % endif
             </h2>
         % endif
-        <h2><a class='nav' href='/'>tf</a></h2>
-        <h2>setup custom graph</h2>
+        <h2><a class='nav' href='/'>tf</a> :: edit graph</h2>
         <form action='/edit' method='post'>
             Title: <input type='text' size=30 name='title' value="${kwargs['title']}"/>
             <p>Timescale: <select name='timescale'>
@@ -45,29 +83,49 @@
             % for graph_type in graph_types:
                 % if 'graph_type' in kwargs and graph_type == kwargs['graph_type']:
                     <option selected value=${graph_type}>${graph_type}</option>
+                % elif 'graph_type' not in kwargs and graph_type == 'line':
+                    <option selected value='line'>line</option>
                 % else:
                     <option value=${graph_type}>${graph_type}</option>
                 % endif
             % endfor
             </select></p>
             <ul>
+
+            <li><b>Wildcard Metrics</b>
+                <ul>
+                    % for item in fields:
+                        % if "*" in item:
+                            <li><input type='checkbox' name='${cgi.escape('%s|%s' % (item.split('|')[0], item.split('|')[1]) )}' value='true' checked='checked'/> ${cgi.escape(item)}</li>
+                        % endif
+                    % endfor
+
+                    <input type="hidden" value="" class="wildcard_hidden"/>
+                    <li>Type your own: i.e. nrpc|*pollmessages <input type="text" class="wildcard"></li>
+                </ul>
+            </li>
+
+            <li>
+                <p><b>Filter Components:</b><input type="text" class="filter" width=50></p>
+            </li>
+
             % for component, metrics in data_sources.iteritems():
                 % if component in active_components:
                     <li><a id='${component}_link' href='javascript:void(0)' onClick="toggle_list('${component}')">-</a> ${component}</li>
                 % else:
                     <li><a id='${component}_link' href='javascript:void(0)' onClick="toggle_list('${component}')">+</a> ${component}</li>
                 % endif
-                <ul id='${component}'>
+                <ul id='${component}' class="components">
                 % for metric in metrics:
                     % if component in active_components:
                         <li>
                     % else:
                         <li style='display: none;'>
                     % endif
-                    % if '%s|%s' % (component, metric) in kwargs:
-                        <input type='checkbox' name='${component}|${metric}' value='true' checked='checked'/> ${metric}
+                    % if '%s|%s' % (component, metric) in fields:
+                        <input type='checkbox' name='${cgi.escape('%s|%s' % (component, metric))}' value='true' checked='checked'/> ${cgi.escape(metric)}
                     % else:
-                            <input type='checkbox' name='${component}|${metric}' value='true' /> ${metric}
+                            <input type='checkbox' name='${cgi.escape('%s|%s' % (component, metric))}' value='true' /> ${cgi.escape(metric)}
                     % endif
                     </li>
                 % endfor

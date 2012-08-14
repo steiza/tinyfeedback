@@ -3,30 +3,33 @@
 #   curl -X DELETE http://127.0.0.1:8000/data/component1/key1
 
 import datetime
+import cgi
 import logging
 import logging.handlers
 import os
 import time
 import urllib
+import re
 
 import mako.template
 import mako.lookup
 import simplejson
 import sqlalchemy
-from twisted.internet import reactor
-from twisted.web.server import Site
+from twisted.internet import defer, reactor, threads
+from twisted.internet.task import deferLater
+from twisted.web.server import Site, NOT_DONE_YET
 from twisted.web.static import File
+import txroutes
 
-import model
-from model import Data
-import twistedroutes
+import redis_model
 
-log = None
 
 def straighten_out_request(f):
     # The twisted request dictionary return values as lists, this un-does that
 
     def wrapped_f(*args, **kwargs):
+        start = time.time()
+
         if 'request' in kwargs:
             request_dict = kwargs['request'].args
         else:
@@ -41,15 +44,24 @@ def straighten_out_request(f):
         else:
             args[1].args = new_request_dict
 
-        return f(*args, **kwargs)
+        ret = f(*args, **kwargs)
+
+        took = time.time() - start
+
+        if took > 0.5:
+            args[0]._log.warn('%s took %f to complete', f, took)
+
+        return ret
 
     return wrapped_f
 
 
 class Controller(object):
 
-    def __init__(self, SessionMaker):
-        self.__SessionMaker = SessionMaker
+    def __init__(self, redis_model_data, redis_model_graph, log):
+        self.__redis_model_data = redis_model_data
+        self.__redis_model_graph = redis_model_graph
+        self._log = log
 
         self.timescales = ['6h', '36h', '1w', '1m', '6m']
         self.graph_types = ['line', 'stacked']
@@ -69,34 +81,38 @@ class Controller(object):
         else:
             edit = None
 
-        session = self.__SessionMaker()
+        self.__finish_get_index(request, username, edit)
 
-        rows = session.query(Data.component).group_by(Data.component).order_by(
-                Data.component).all()
+        return NOT_DONE_YET
 
-        session.close()
-
-        keys = [each[0] for each in rows]
+    @defer.inlineCallbacks
+    def __finish_get_index(self, request, username, edit):
+        components = yield self.__redis_model_data.get_components()
 
         # Look up custom graphs for this user
         if username is not None:
-            user_id = model.ensure_user_exists(self.__SessionMaker, username)
-            graphs = model.get_graphs(self.__SessionMaker, user_id)
-
+            graphs = yield self.__redis_model_graph.get_graphs(username)
         else:
-            user_id = None
-            graphs = None
+            graphs = {}
+
+        graph_data = [None] * len(graphs)
+
+        for title, each_graph in graphs.iteritems():
+            graph_data[each_graph['ordering']] = yield self.__get_graph_details(
+                    title, each_graph)
 
         template = self.__template_lookup.get_template('index.mako')
 
-        return template.render(components=keys, username=username, edit=edit,
-                user_id=user_id, graphs=graphs).encode('utf8')
+        ret = template.render(components=components, username=username,
+                edit=edit, graphs=graph_data, cgi=cgi).encode('utf8')
+
+        request.write(ret)
+        request.finish()
 
     @straighten_out_request
     def get_component(self, request, component):
         if request.args.get('delete_older_than_a_week', None) is not None:
-            model.clean_out_metrics_older_than_a_week(self.__SessionMaker,
-                    component)
+            self.__redis_model_data.delete_metrics_older_than_a_week(component)
 
             request_args = request.args
             del request_args['delete_older_than_a_week']
@@ -112,68 +128,92 @@ class Controller(object):
         username = request.getCookie('username')
 
         timescale = request.args.get('ts', '6h')
-
         if timescale not in self.timescales:
             timescale = '6h'
 
-        metrics = []
+        self.__finish_get_component(request, component, username, timescale)
 
-        session = self.__SessionMaker()
-        rows = session.query(Data).filter(Data.component == component).group_by(
-                Data.metric).order_by(Data.metric).all()
+        return NOT_DONE_YET
 
-        for each in rows:
-            data, should_save = each.get_data(timescale)
+    @defer.inlineCallbacks
+    def __finish_get_component(self, request, component, username, timescale):
+        metrics = yield self.__redis_model_data.get_metrics(component)
+        metric_data = []
 
-            if should_save:
-                session.merge(each)
+        for each_metric in metrics:
+            data = yield self.__redis_model_data.get_data(component,
+                    each_metric, timescale)
+
+            # HACK: if the last value is 0, set it the previous value so sparkline doesn't drop off to 0
+            if data[-1] == 0:
+                data[-1] = data[-2]
 
             current = data[-1]
             minimum = min(data)
             maximum = max(data)
 
-            metrics.append((each.metric, each.metric.replace('.', '-').replace(
-                    ':', '-'), data, current, minimum, maximum))
-
-        session.commit()
+            metric_data.append((each_metric, data, current, minimum, maximum))
 
         template = self.__template_lookup.get_template('component.mako')
 
-        return template.render(component=component, metrics=metrics,
+        ret = template.render(component=component, metrics=metric_data,
                 username=username, timescale=timescale,
-                timescales=self.timescales).encode('utf8')
+                timescales=self.timescales, cgi=cgi).encode('utf8')
+
+        request.write(ret)
+        request.finish()
 
     @straighten_out_request
     def get_edit(self, request):
         username = request.getCookie('username')
 
         title = request.args.get('title', '')
+        title = urllib.unquote_plus(title.replace('$2F', '%2F'))
         request.args['title'] = title
 
         if 'delete' in request.args and title != '':
-            user_id = model.ensure_user_exists(self.__SessionMaker, username)
-            model.remove_graph(self.__SessionMaker, user_id, title)
+            self.__redis_model_graph.remove_graph(username, title)
 
             request.setResponseCode(303)
             request.redirect('/')
             return ''
 
-        data_sources = model.get_data_sources(self.__SessionMaker)
+        self.__finish_get_edit(request, username, title)
 
-        for each_metric in data_sources.itervalues():
-            each_metric.sort()
+        return NOT_DONE_YET
 
-        active_components = \
-                [each.split('|')[0] for each in request.args if '|' in each]
+    @defer.inlineCallbacks
+    def __finish_get_edit(self, request, username, title):
+        data_sources = {}
+
+        components = yield self.__redis_model_data.get_components()
+
+        for each_component in components:
+            metrics = yield self.__redis_model_data.get_metrics(each_component)
+            metrics.sort()
+
+            data_sources[each_component] = metrics
+
+        graphs = yield self.__redis_model_graph.get_graphs(username)
+        if title and title in graphs:
+            fields = graphs[title]['fields']
+            active_components = [each.split('|')[0] for each in fields]
+
+        else:
+            fields = []
+            active_components = []
 
         graph_type = request.args.get('graph_type', '')
 
         template = self.__template_lookup.get_template('edit.mako')
 
-        return template.render(kwargs=request.args, data_sources=data_sources,
-                active_components=active_components, username=username,
-                timescales=self.timescales,
-                graph_types=self.graph_types).encode('utf8')
+        ret = template.render(kwargs=request.args, fields=fields,
+                data_sources=data_sources, active_components=active_components,
+                username=username, timescales=self.timescales,
+                graph_types=self.graph_types, cgi=cgi).encode('utf8')
+
+        request.write(ret)
+        request.finish()
 
     @straighten_out_request
     def post_edit(self, request):
@@ -195,7 +235,6 @@ class Controller(object):
             request.redirect(redirect)
             return ''
 
-        user_id = model.ensure_user_exists(self.__SessionMaker, username)
         title = request.args['title']
         timescale = request.args['timescale']
         graph_type = request.args['graph_type']
@@ -210,132 +249,195 @@ class Controller(object):
         index = keys.index('timescale')
         del keys[index]
 
-        model.update_graph(self.__SessionMaker, title, user_id, timescale, keys,
+        # Make sure any wildcards are correctly formatted
+        for each_key in keys:
+            if '*' in each_key and '|' not in each_key:
+                request.args['error'] = 'bad_wildcard_filter'
+                redirect = '/edit?%s' % urllib.urlencode(request.args)
+
+                request.setResponseCode(303)
+                request.redirect(redirect)
+                return ''
+
+        self.__finish_post_edit(request, username, title, timescale, keys,
                 graph_type)
+
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_post_edit(self, request, username, title, timescale, keys,
+            graph_type):
+
+        yield self.__redis_model_graph.update_graph(username, title, timescale,
+                keys, graph_type)
 
         request.setResponseCode(303)
         request.redirect('/')
-        return ''
+        request.finish()
 
     @straighten_out_request
-    def get_graph(self, request):
+    def get_graph(self, request, graph_username, title):
+        self._log.debug('get graph %s %s', graph_username, title)
+
         username = request.getCookie('username')
 
-        graph_id = request.args.get('graph_id', '')
-        title = request.args.get('title', '')
+        # HACK: routes can't handle URLs with %2F in them ('/')
+        # so replace '$2F' with '%2F' as we unquote the title
+        title = urllib.unquote_plus(title.replace('$2F', '%2F'))
+
         graph_type = request.args.get('graph_type', '')
         timescale = request.args.get('timescale', '')
+        force_max_value = float(request.args.get('max', 0))
 
-        for each in [graph_id, title, graph_type, timescale]:
+        for each in [graph_type, timescale]:
             if each == '':
                 request.setResponseCode(400)
                 return ''
 
-        keys = request.args.keys()
+        self.__finish_get_graph(request, username, graph_username, title,
+                graph_type, timescale, force_max_value)
 
-        for each in ['graph_id', 'title', 'graph_type', 'timescale']:
-            index = keys.index(each)
-            del keys[index]
+        return NOT_DONE_YET
 
-        graph = model.get_data_for_graph(self.__SessionMaker, graph_id, title,
-                graph_type, keys, timescale)
+    @defer.inlineCallbacks
+    def __finish_get_graph(self, request, username, graph_username, title,
+            graph_type, timescale, force_max_value):
+
+        graphs = yield self.__redis_model_graph.get_graphs(graph_username)
+
+        graph_details = yield self.__get_graph_details(title, graphs[title],
+                graph_type, timescale)
 
         template = self.__template_lookup.get_template('graph.mako')
 
-        return template.render(username=username, title=title,
-                graph_type=graph_type, components=keys, graph=[graph]).encode('utf8')
+        ret = template.render(username=username, graph_username=graph_username,
+                title=title, graph_type=graph_type, graph=[graph_details],
+                force_max_value=force_max_value).encode('utf8')
+
+        request.write(ret)
+        request.finish()
 
     # AJAX calls to manipulate user state
     @straighten_out_request
     def post_graph_ordering(self, request):
-        log.debug('post graph ordering %s', request.args)
-
         new_ordering = request.args.get('new_ordering', '')
-        user_id = None
-
         username = request.getCookie('username')
-        if username is not None:
-            user_id = model.ensure_user_exists(self.__SessionMaker, username)
 
-        if new_ordering == '' or user_id is None:
+        if new_ordering == '':
             request.setResponseCode(400)
             return ''
 
         new_ordering = simplejson.loads(new_ordering)
 
-        model.update_ordering(self.__SessionMaker, user_id, new_ordering)
+        self.__finish_post_graph_ordering(request, username, new_ordering)
 
-        request.setResponseCode(200)
-        return ''
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_post_graph_ordering(self, request, username, new_ordering):
+        yield self.__redis_model_graph.update_ordering(username, new_ordering)
+
+        request.write('')
+        request.finish()
+
+    @straighten_out_request
+    def post_add_graph_from_other_user(self, request):
+        username = request.getCookie('username')
+
+        graph_username = request.args.get('graph_username', '')
+        title = request.args.get('title', '')
+        timescale = request.args.get('timescale', None)
+        graph_type = request.args.get('graph_type', None)
+
+        if graph_username == '' or title == '':
+            request.setResponseCode(400)
+            return ''
+
+        self.__finish_post_add_graph_from_other_user(request, username,
+                graph_username, title, timescale, graph_type)
+
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_post_add_graph_from_other_user(self, request, username,
+            graph_username, title, timescale, graph_type):
+
+        graphs = yield self.__redis_model_graph.get_graphs(graph_username)
+
+        if title in graphs:
+            if not timescale:
+                timescale = graphs[title]['timescale']
+            if not graph_type:
+                graph_type = graphs[title]['graph_type']
+
+            yield self.__redis_model_graph.update_graph(username, title,
+                    timescale, graphs[title]['fields'], graph_type)
+
+        request.setResponseCode(303)
+        request.redirect('/')
+        request.finish()
 
     # API for dealing with data
     @straighten_out_request
     def post_data(self, request, component):
-        log.debug('posting data for %s', component)
+        self._log.debug('posting data for %s %s', component, request.args)
 
-        session = self.__SessionMaker()
+        deferreds = []
 
         for metric, value in request.args.iteritems():
-            # truncate metric to 128 characters
-            metric = metric[:128]
+            deferred = self.__redis_model_data.update_metric(component, metric,
+                    int(value))
 
-            # See if it is in the database
-            row = session.query(Data).filter(Data.component == component
-                    ).filter(Data.metric == metric).all()
+            deferreds.append(deferred)
 
-            if len(row) > 0:
-                model = row[0]
-            else:
-                model = Data(component, metric)
+        defer_list = defer.DeferredList(deferreds, consumeErrors=True)
+        defer_list.addCallback(self.__finish_post_data, request)
 
-            model.update(int(value))
-            session.merge(model)
+        return NOT_DONE_YET
 
-        session.commit()
+    def __finish_post_data(self, responses, request):
+        errors = []
+        for (success, exception) in responses:
+            if not success:
+                errors.append(exception.value.message)
 
-        return ''
+        if errors:
+            request.setResponseCode(400)
+            request.write(simplejson.dumps(errors))
+        else:
+            request.write('OK')
+
+        request.finish()
 
     @straighten_out_request
     def get_data(self, request, component, metric):
-        session = self.__SessionMaker()
+        timescale = request.args.get('ts', '6h')
 
-        # See if it is in the database
-        row = session.query(Data).filter(Data.component == component
-                ).filter(Data.metric == metric).all()
+        if timescale not in self.timescales:
+            timescale = '6h'
 
-        if len(row) > 0:
-            model = row[0]
+        self.__finish_get_data(request, component, metric, timescale)
 
-        else:
-            request.setResponseCode(400)
-            request.redirect('/')
-            return ''
+        return NOT_DONE_YET
 
-        ret, should_save = model.get_data()
+    @defer.inlineCallbacks
+    def __finish_get_data(self, request, component, metric, timescale):
+        data = yield self.__redis_model_data.get_data(component, metric,
+                timescale)
 
-        if should_save:
-            session.merge(model)
-
-        session.commit()
-
-        return str(ret)
+        request.write(simplejson.dumps(data))
+        request.finish()
 
     @straighten_out_request
     def delete_data(self, request, component, metric=None):
-        session = self.__SessionMaker()
+        self.__finish_delete_data(request, component, metric)
+        return NOT_DONE_YET
 
-        query = session.query(Data).filter(Data.component == component)
-
-        if metric is not None:
-            query = query.filter(Data.metric == metric)
-
-        rows = query.all()
-
-        for each in rows:
-            session.delete(each)
-
-        session.commit()
-        return ''
+    @defer.inlineCallbacks
+    def __finish_delete_data(self, request, component, metric):
+        yield self.__redis_model_data.delete_data(component, metric)
+        request.write('OK')
+        request.finish()
 
     # Dealing with login
     @straighten_out_request
@@ -353,8 +455,6 @@ class Controller(object):
         expires_str = current_utc_time.strftime('%a, %d-%b-%Y %H:%M:%S GMT')
 
         request.addCookie('username', username, expires=expires_str)
-
-        model.ensure_user_exists(self.__SessionMaker, username)
 
         referer = request.getHeader('Referer')
         if referer is None:
@@ -378,39 +478,125 @@ class Controller(object):
         request.redirect(referer)
         return ''
 
+    # Helpers
+    @defer.inlineCallbacks
+    def __get_graph_details(self, title, graph, graph_type=None,
+            timescale=None):
 
-def set_up_server(port, data_store, log_path, log_level):
-    global log
+        if not graph_type or graph_type not in self.graph_types:
+            graph_type = graph['graph_type']
 
+        if not timescale or timescale not in self.timescales:
+            timescale = graph['timescale']
+
+        fields = graph['fields']
+        fields.sort() # TODO: migrate graphs so fields are already sorted
+
+        time_per_data_point = 60*1000
+
+        if timescale == '36h':
+            time_per_data_point = 5*60*1000
+        elif timescale == '1w':
+            time_per_data_point = 30*60*1000
+        elif timescale == '1m':
+            time_per_data_point = 2*60*60*1000
+        elif timescale == '6m':
+            time_per_data_point = 12*60*60*1000
+
+        line_names = []
+        data_rows = []
+
+        for each_field in fields:
+            component, metric = each_field.split('|')[:2]
+
+            metrics = yield self.__redis_model_data.get_metrics(component)
+
+            # Handle wildcard metrics
+            matching_metrics = []
+            if '*' in metric:
+                metric_re = metric.replace('*', '[a-zA-Z0-9_\.:-]*')
+            else:
+                metric_re = metric
+
+            metric_re = '^%s$' % metric_re
+
+            for each_metric in metrics:
+                if re.match(metric_re, each_metric):
+                    matching_metrics.append(each_metric)
+
+            if len(matching_metrics) == 0:
+                line_name = '%s: %s - NO DATA' % (component, metric)
+                line_names.append(line_name.encode('utf8'))
+
+                data = yield self.__redis_model_data.get_data(component,
+                        metric, timescale)
+
+                data_rows.append(data)
+
+            else:
+                for each_metric in matching_metrics:
+                    line_name = '%s: %s' % (component, each_metric)
+                    line_names.append(line_name.encode('utf8'))
+
+                    data = yield self.__redis_model_data.get_data(component,
+                            each_metric, timescale)
+
+                    data_rows.append(data)
+
+        # Protoviz wants time in ms
+        current_time_slot = (int(time.time()) / 60 * 60) * 1000
+
+        if len(data_rows) > 0:
+            length = max([len(row) for row in data_rows])
+
+            if graph_type == 'stacked':
+                max_value = max([sum(column) for column in zip(*data_rows)])
+            else:
+                max_value = max([max(row) for row in data_rows])
+        else:
+            length = 0
+            max_value = 0
+
+        # HACK: routes can't handle URLs with %2F in them ('/')
+        # so replace '%2F' with '$2F' as we quote the title
+        title_urlencoded = urllib.quote_plus(title).replace('%2F', '$2F')
+
+        defer.returnValue((title, title_urlencoded, graph_type,
+                urllib.quote_plus(graph_type), timescale,
+                time_per_data_point, line_names, data_rows, current_time_slot,
+                length, max_value))
+
+def set_up_server(port, log_path, log_level):
+    # Set up logging
     log = logging.getLogger('tinyfeedback')
     level = getattr(logging, log_level, logging.INFO)
     log.setLevel(level)
 
-    handler = logging.StreamHandler()
-
     if log_path != '':
-        dir = os.path.dirname(log_path)
-        if not os.path.exists(dir):
-            os.makedirs(dir, 0755)
+        dir_path = os.path.dirname(log_path)
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path, 0755)
 
         handler = logging.handlers.RotatingFileHandler(log_path,
                 maxBytes=100*1024*1024, backupCount=5)
 
+    else:
+        handler = logging.StreamHandler()
+
     handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     log.addHandler(handler)
 
-    engine = sqlalchemy.create_engine(
-            data_store,
-            pool_size = 20,
-            max_overflow = -1,
-            pool_recycle = 1, # Re-open closed connections to db after 1 second
-            )
+    # Connect to redis
+    redis_model_data = redis_model.Data('127.0.0.1')
+    redis_model_data.connect()
 
-    SessionMaker = model.bind_engine(engine)
+    redis_model_graph = redis_model.Graph('127.0.0.1')
+    redis_model_graph.connect()
 
-    controller = Controller(SessionMaker)
+    # Set up the webserver
+    controller = Controller(redis_model_data, redis_model_graph, log)
 
-    dispatcher = twistedroutes.Dispatcher()
+    dispatcher = txroutes.Dispatcher()
 
     # User-visible pages
     dispatcher.connect('get_index', '/', controller=controller,
@@ -426,12 +612,17 @@ def set_up_server(port, data_store, log_path, log_level):
     dispatcher.connect('post_edit', '/edit', controller=controller,
             action='post_edit', conditions=dict(method=['POST']))
 
-    dispatcher.connect('get_graph', '/graph', controller=controller,
-            action='get_graph', conditions=dict(method=['GET']))
+    dispatcher.connect('get_graph', '/graph/{graph_username}/{title}',
+            controller=controller, action='get_graph',
+            conditions=dict(method=['GET']))
 
     # AJAX calls to manipulate user state
     dispatcher.connect('post_graph_ordering', '/graph_ordering',
             controller=controller, action='post_graph_ordering',
+            conditions=dict(method=['POST']))
+
+    dispatcher.connect('post_add_graph_from_other_user', '/add_graph',
+            controller=controller, action='post_add_graph_from_other_user',
             conditions=dict(method=['POST']))
 
     # API for dealing with data
@@ -467,7 +658,3 @@ def set_up_server(port, data_store, log_path, log_level):
     log.info('tiny feedback running on port %d', port)
 
     reactor.run()
-
-
-if __name__ == '__main__':
-    set_up_server()

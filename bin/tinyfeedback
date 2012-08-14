@@ -5,10 +5,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import tinyfeedback.webserver
+import tinyfeedback.helper
 
-
-PORT = 8000
-DATA_STORE = 'mysql://tinyfeedback@localhost/tinyfeedback'
 
 LOG_PATH = ''
 #LOG_PATH = '/var/log/tinyfeedback.log'
@@ -16,5 +14,5 @@ LOG_LEVEL = 'DEBUG'
 
 
 if __name__ == '__main__':
-    tinyfeedback.webserver.set_up_server(port=PORT, data_store=DATA_STORE,
+    tinyfeedback.webserver.set_up_server(port=tinyfeedback.helper.PORT,
             log_path=LOG_PATH, log_level=LOG_LEVEL)
