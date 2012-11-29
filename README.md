@@ -16,7 +16,12 @@
 **Q**: What do I need to get started?
 
 **A**:
-A *nix machine with redis. The config is currently in two place: you can specify the port the webserver listens on in tinyfeedback/helper.py and you can tweak the logging in bin/tinyfeedback.
+A *nix machine with redis. You can configure tinyfeedback with the following environment variables: 
+
+- `TINYFEEDBACK_PORT`: The port the server should run on, also configures the helper libraries. Defaults to `8000`.
+- `TINYFEEDBACK_HOST`: Configures the server that the helper library functions send data to. Defaults to `'localhost'`.
+- `TINYFEEDBACK_LOGLEVEL`: What type of errors to log, defaults to `'DEBUG'`.
+- `TINYFEEDBACK_LOGPATH`: Path of the file to log to, defaults to `''`.
 
 To install the dependencies, simply run "pip install -r requirements.txt"
 

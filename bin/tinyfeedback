@@ -8,9 +8,9 @@ import tinyfeedback.webserver
 import tinyfeedback.helper
 
 
-LOG_PATH = ''
+LOG_PATH = os.environ.get('TINYFEEDBACK_LOGPATH', '')
 #LOG_PATH = '/var/log/tinyfeedback.log'
-LOG_LEVEL = 'DEBUG'
+LOG_LEVEL = os.environ.get('TINYFEEDBACK_LOGLEVEL', 'DEBUG')
 
 
 if __name__ == '__main__':

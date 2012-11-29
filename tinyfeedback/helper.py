@@ -1,3 +1,4 @@
+import os
 import platform
 import subprocess
 import time
@@ -5,8 +6,8 @@ import urllib
 from twisted.web.client import getPage
 
 
-PORT = 8000
-HOST = '127.0.0.1'
+PORT = os.environ.get('TINYFEEDBACK_PORT', 8000)
+HOST = os.environ.get('TINYFEEDBACK_HOST', '127.0.0.1')
 
 
 def send_once(component, data_dict):
