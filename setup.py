@@ -14,4 +14,5 @@ tinyfeedback is a ridiculously simple way for you to see trends in whatever you 
       packages=['tinyfeedback'],
       scripts=['bin/tinyfeedback', 'bin/tinyfeedback-ctl'],
       package_data={'tinyfeedback': ['static/*/*', 'templates/*']},
+      install_requires=['twisted', 'txroutes', 'txredisapi', 'mako', 'simplejson',]
       )
