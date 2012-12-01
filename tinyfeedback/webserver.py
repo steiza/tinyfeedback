@@ -14,7 +14,6 @@ import re
 import mako.template
 import mako.lookup
 import simplejson
-import sqlalchemy
 from twisted.internet import defer, reactor, threads
 from twisted.internet.task import deferLater
 from twisted.web.server import Site, NOT_DONE_YET
