@@ -1,4 +1,4 @@
-<script type='text/javascript+protovis'>
+<script type='text/javascript'>
     function custom_graph(line_name, data, time, max, graph_type, width, height) {
         var width = width || 400;
         var panel_height = height || 250;
