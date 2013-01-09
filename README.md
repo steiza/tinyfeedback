@@ -86,3 +86,9 @@ Custom graphs can be set up at the /edit URL.
 or just:
 
 `curl -X DELETE http://127.0.0.1/data/really_important_server`
+
+## License
+
+This project is licensed under the [MIT License][1]
+
+[1]: http://opensource.org/licenses/MIT
