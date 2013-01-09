@@ -8,6 +8,7 @@ import txredisapi
 
 class Graph(object):
     '''
+    tinyfeedback:usernames - all the usernames we know about
     tinyfeedback:graph:<username>:all_graphs - dictionary of graphs by title
     '''
 
@@ -15,8 +16,45 @@ class Graph(object):
         self.__host = host
 
     @defer.inlineCallbacks
-    def connect(self):
-        self.__redis = yield txredisapi.ConnectionPool(self.__host, poolsize=50)
+    def connect(self, poolsize=None):
+        if not poolsize:
+            poolsize = 10
+
+        self.__redis = yield txredisapi.ConnectionPool(self.__host, poolsize=poolsize)
+
+    @defer.inlineCallbacks
+    def add_username(self, username):
+        key = 'tinyfeedback:usernames'
+        yield self.__redis.sadd(key, username)
+
+    @defer.inlineCallbacks
+    def remove_username(self, username):
+        key = 'tinyfeedback:usernames'
+        yield self.__redis.srem(key, username)
+
+    @defer.inlineCallbacks
+    def get_graphs_per_user(self):
+        user_key = 'tinyfeedback:usernames'
+        usernames = yield self.__redis.smembers(user_key)
+
+        keys = ['tinyfeedback:graph:%s:all_graphs' % each_username for \
+                each_username in usernames]
+
+        user_graphs = yield self.__redis.mget(keys)
+
+        graphs_per_user = []
+        for i, each_username in enumerate(usernames):
+            if not user_graphs[i]:
+                num_graphs = 0
+            else:
+                num_graphs = len(simplejson.loads(user_graphs[i]))
+
+            graphs_per_user.append((each_username, num_graphs))
+
+        # Sort usernames by the number of graphs they have
+        graphs_per_user.sort(cmp=lambda x, y: y[1] - x[1])
+
+        defer.returnValue(graphs_per_user)
 
     @defer.inlineCallbacks
     def get_graphs(self, username):
@@ -145,8 +183,11 @@ class Data(object):
         self.__update_metric_limit = defer.DeferredSemaphore(25)
 
     @defer.inlineCallbacks
-    def connect(self):
-        self.__redis = yield txredisapi.ConnectionPool(self.__host, poolsize=200)
+    def connect(self, poolsize=None):
+        if not poolsize:
+            poolsize = 100
+
+        self.__redis = yield txredisapi.ConnectionPool(self.__host, poolsize=poolsize)
 
     @defer.inlineCallbacks
     def get_components(self):

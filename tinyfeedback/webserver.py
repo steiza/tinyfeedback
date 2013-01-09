@@ -103,9 +103,66 @@ class Controller(object):
         template = self.__template_lookup.get_template('index.mako')
 
         ret = template.render(components=components, username=username,
-                edit=edit, graphs=graph_data, cgi=cgi).encode('utf8')
+                dashboard_username=username, edit=edit, graphs=graph_data,
+                cgi=cgi).encode('utf8')
 
         request.write(ret)
+        request.finish()
+
+    def get_dashboards(self, request):
+        username = request.getCookie('username')
+        self.__finish_get_dashboards(request, username)
+
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_get_dashboards(self, request, username):
+        graphs_per_user = yield self.__redis_model_graph.get_graphs_per_user()
+
+        template = self.__template_lookup.get_template('dashboards.mako')
+
+        page = template.render(username=username,
+                graphs_per_user=graphs_per_user).encode('utf8')
+
+        request.write(page)
+        request.finish()
+
+    def get_user_dashboards(self, request, dashboard_username):
+        username = request.getCookie('username')
+        self.__finish_get_user_dashboards(request, dashboard_username,
+                username)
+
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_get_user_dashboards(self, request, dashboard_username,
+            username):
+
+        graphs = yield self.__redis_model_graph.get_graphs(dashboard_username)
+
+        graph_data = [None] * len(graphs)
+
+        for title, each_graph in graphs.iteritems():
+            graph_data[each_graph['ordering']] = yield self.__get_graph_details(
+                    title, each_graph)
+
+        template = self.__template_lookup.get_template('index.mako')
+
+        ret = template.render(components=[], username=username,
+                dashboard_username=dashboard_username, edit=None,
+                graphs=graph_data, cgi=cgi).encode('utf8')
+
+        request.write(ret)
+        request.finish()
+
+    def delete_user(self, request, dashboard_username):
+        self.__finish_delete_user(request, dashboard_username)
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_delete_user(self, request, dashboard_username):
+        yield self.__redis_model_graph.remove_username(dashboard_username)
+        request.write('OK')
         request.finish()
 
     @straighten_out_request
@@ -250,7 +307,7 @@ class Controller(object):
 
         # Make sure any wildcards are correctly formatted
         for each_key in keys:
-            if '*' in each_key and '|' not in each_key:
+            if '|' not in each_key:
                 request.args['error'] = 'bad_wildcard_filter'
                 redirect = '/edit?%s' % urllib.urlencode(request.args)
 
@@ -448,6 +505,9 @@ class Controller(object):
 
         username = request.args['username'].lower()
 
+        # Record that this user exists
+        self.__redis_model_graph.add_username(username)
+
         # Save the username as a cookie
         current_utc_time = datetime.datetime.utcnow()
         current_utc_time += datetime.timedelta(days=365)
@@ -508,41 +568,63 @@ class Controller(object):
         for each_field in fields:
             component, metric = each_field.split('|')[:2]
 
-            metrics = yield self.__redis_model_data.get_metrics(component)
+            # Handle wildcard components
+            matching_components = []
+            if '*' in component:
+                component_re = component.replace('*', '[a-zA-Z0-9_\.:-]*')
+                component_re = '^%s$' % component_re
 
-            # Handle wildcard metrics
-            matching_metrics = []
-            if '*' in metric:
-                metric_re = metric.replace('*', '[a-zA-Z0-9_\.:-]*')
-            else:
-                metric_re = metric
+                components = yield self.__redis_model_data.get_components()
 
-            metric_re = '^%s$' % metric_re
-
-            for each_metric in metrics:
-                if re.match(metric_re, each_metric):
-                    matching_metrics.append(each_metric)
-
-            if len(matching_metrics) == 0:
-                line_name = '%s: %s - NO DATA' % (component, metric)
-                line_names.append(line_name.encode('utf8'))
-
-                data = yield self.__redis_model_data.get_data(component,
-                        metric, timescale)
-
-                data_rows.append(data)
+                for each_component in components:
+                    if re.match(component_re, each_component):
+                        matching_components.append(each_component)
 
             else:
-                for each_metric in matching_metrics:
-                    line_name = '%s: %s' % (component, each_metric)
-                    line_names.append(line_name.encode('utf8'))
+                matching_components = [component]
 
-                    data = yield self.__redis_model_data.get_data(component,
-                            each_metric, timescale)
 
-                    data_rows.append(data)
+            for each_component in matching_components:
+                metrics = yield self.__redis_model_data.get_metrics(
+                        each_component)
 
-        # Protoviz wants time in ms
+                # Handle wildcard metrics
+                matching_metrics = []
+                if '*' in metric:
+                    metric_re = metric.replace('*', '[a-zA-Z0-9_\.:-]*')
+                else:
+                    metric_re = metric
+
+                metric_re = '^%s$' % metric_re
+
+                for each_metric in metrics:
+                    if re.match(metric_re, each_metric):
+                        matching_metrics.append(each_metric)
+
+                if len(matching_metrics) == 0:
+                    line_name = '%s: %s - NO DATA' % (each_component, metric)
+
+                    if line_name not in line_names:
+                        line_names.append(line_name.encode('utf8'))
+
+                        data = yield self.__redis_model_data.get_data(
+                                each_component, metric, timescale)
+
+                        data_rows.append(data)
+
+                else:
+                    for each_metric in matching_metrics:
+                        line_name = '%s: %s' % (each_component, each_metric)
+
+                        if line_name not in line_names:
+                            line_names.append(line_name.encode('utf8'))
+
+                            data = yield self.__redis_model_data.get_data(
+                                    each_component, each_metric, timescale)
+
+                            data_rows.append(data)
+
+        # d3 wants time in ms
         current_time_slot = (int(time.time()) / 60 * 60) * 1000
 
         if len(data_rows) > 0:
@@ -564,6 +646,7 @@ class Controller(object):
                 urllib.quote_plus(graph_type), timescale,
                 time_per_data_point, line_names, data_rows, current_time_slot,
                 length, max_value))
+
 
 def set_up_server(port, log_path, log_level):
     # Set up logging
@@ -600,6 +683,17 @@ def set_up_server(port, log_path, log_level):
     # User-visible pages
     dispatcher.connect('get_index', '/', controller=controller,
             action='get_index', conditions=dict(method=['GET']))
+
+    dispatcher.connect('get_dashboards', '/dashboards', controller=controller,
+            action='get_dashboards', conditions=dict(method=['GET']))
+
+    dispatcher.connect('get_user_dashboards', '/dashboards/{dashboard_username}',
+            controller=controller, action='get_user_dashboards',
+            conditions=dict(method=['GET']))
+
+    dispatcher.connect('delete_user', '/dashboards/{dashboard_username}',
+            controller=controller, action='delete_user',
+            conditions=dict(method=['DELETE']))
 
     dispatcher.connect('get_component', '/view/:component',
             controller=controller, action='get_component',

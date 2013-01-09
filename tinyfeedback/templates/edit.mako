@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<meta charset='utf-8'>
 <html>
     <head>
         <link href='/static/css/style.css' type='text/css' rel='stylesheet' />
@@ -18,6 +20,21 @@
             }
 
             $(document).ready(function(){
+                var update_name = function() {
+                    if ($(this).val() != '') {
+                        $(this).attr('name', $(this).val());
+                    } else {
+                        $(this).attr('name', '');
+                    }
+                }
+
+                $(".wildcard").change(update_name);
+                $(".wildcard").keydown(update_name);
+
+                $('#add_field').click(function() {
+                    $('#explicit_metrics').append("<li><input type='text' class='wildcard' /></li>");
+                });
+
                 var refresh_timeout = null;
 
                 var filter = function() {
@@ -38,19 +55,6 @@
 
                 $(".filter").change(filter);
                 $(".filter").keydown(filter);
-
-                var update_wildcard = function() {
-                    if ($(".wildcard").val() != '') {
-                        $(".wildcard_hidden").attr('name', $(".wildcard").val());
-                        $(".wildcard_hidden").val("true");
-                    } else {
-                        $(".wildcard_hidden").attr('name', '');
-                        $(".wildcard_hidden").val("");
-                    }
-                }
-
-                $(".wildcard").change(update_wildcard);
-                $(".wildcard").keydown(update_wildcard);
             });
 
         </script>
@@ -63,7 +67,7 @@
             % elif kwargs['error'] == 'no_fields':
                 You must specify at least one field
             % elif kwargs['error'] == 'bad_wildcard_filter':
-                Wildcards must contain a "*" and a "|"
+                Wildcards must contain a "|"
             % endif
             </h2>
         % endif
@@ -90,47 +94,51 @@
                 % endif
             % endfor
             </select></p>
+            <input type='submit' value='save' />
             <ul>
 
-            <li><b>Wildcard Metrics</b>
-                <ul>
+            <li><b>Wildcard Items</b>
+                <p>Type the name of the component and metric you want i.e. component|metric* or *|metric</p>
+                <ul id='explicit_metrics'>
                     % for item in fields:
-                        % if "*" in item:
-                            <li><input type='checkbox' name='${cgi.escape('%s|%s' % (item.split('|')[0], item.split('|')[1]) )}' value='true' checked='checked'/> ${cgi.escape(item)}</li>
+                        % if '*' in item:
+                            <li><input type='text' name='${cgi.escape(item)}' value='${cgi.escape(item)}' class='wildcard' /></li>
                         % endif
                     % endfor
 
-                    <input type="hidden" value="" class="wildcard_hidden"/>
-                    <li>Type your own: i.e. nrpc|*pollmessages <input type="text" class="wildcard"></li>
+                    <li><input type='text' class='wildcard' /></li>
                 </ul>
+                <button id='add_field' type='button'>Add another field</button>
             </li>
+            <br />
 
-            <li>
-                <p><b>Filter Components:</b><input type="text" class="filter" width=50></p>
-            </li>
-
-            % for component, metrics in data_sources.iteritems():
-                % if component in active_components:
-                    <li><a id='${component}_link' href='javascript:void(0)' onClick="toggle_list('${component}')">-</a> ${component}</li>
-                % else:
-                    <li><a id='${component}_link' href='javascript:void(0)' onClick="toggle_list('${component}')">+</a> ${component}</li>
-                % endif
-                <ul id='${component}' class="components">
-                % for metric in metrics:
-                    % if component in active_components:
-                        <li>
-                    % else:
-                        <li style='display: none;'>
-                    % endif
-                    % if '%s|%s' % (component, metric) in fields:
-                        <input type='checkbox' name='${cgi.escape('%s|%s' % (component, metric))}' value='true' checked='checked'/> ${cgi.escape(metric)}
-                    % else:
-                            <input type='checkbox' name='${cgi.escape('%s|%s' % (component, metric))}' value='true' /> ${cgi.escape(metric)}
-                    % endif
-                    </li>
-                % endfor
+            <li><b>All Components</b>
+                <p>Filter Metrics:<input type="text" class="filter" width=50></p>
+                <ul>
+                    % for component, metrics in data_sources.iteritems():
+                        % if component in active_components:
+                            <li><a id='${component}_link' href='javascript:void(0)' onClick="toggle_list('${component}')">-</a> ${component}</li>
+                        % else:
+                            <li><a id='${component}_link' href='javascript:void(0)' onClick="toggle_list('${component}')">+</a> ${component}</li>
+                        % endif
+                        <ul id='${component}' class="components">
+                        % for metric in metrics:
+                            % if component in active_components:
+                                <li>
+                            % else:
+                                <li style='display: none;'>
+                            % endif
+                            % if '%s|%s' % (component, metric) in fields:
+                                <input type='checkbox' name='${cgi.escape('%s|%s' % (component, metric))}' value='true' checked='checked'/> ${cgi.escape(metric)}
+                            % else:
+                                    <input type='checkbox' name='${cgi.escape('%s|%s' % (component, metric))}' value='true' /> ${cgi.escape(metric)}
+                            % endif
+                            </li>
+                        % endfor
+                        </ul>
+                    % endfor
                 </ul>
-            % endfor
+                </li>
             </ul>
             <br />
             <input type='submit' value='save' />

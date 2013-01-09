@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<meta charset='utf-8'>
 <html>
     <head>
         <link href='/static/css/style.css' type='text/css' rel='stylesheet' />

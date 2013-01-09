@@ -3,8 +3,16 @@ body {
     margin: 10px;
 }
 
+#cursorlabel {
+    position: absolute;
+}
+
 h2.error {
     color: red;
+}
+
+h3 {
+    font-family: sans-serif;
 }
 
 a {
@@ -47,12 +55,50 @@ table.sparkline td {
 
 #sortable li {
     font-size: small;
-    padding: 20px;
+    padding: 30px;
     float: left;
     width: 500px;
     height: 330px;
 }
 
+a:link.bare {
+  text-decoration: none;
+}
+
 #post_float {
     clear: both;
+}
+
+.tooltip {
+    display: none;
+    position: absolute;
+    padding: 7px;
+    font: 13px sans-serif;
+    background-color: rgba(240, 240, 240, 0.8);
+}
+
+.line {
+    fill: none;
+    stroke-width: 1.5px;
+}
+
+.axis {
+    font: 13px sans-serif;
+}
+
+.axis line {
+    stroke: #444;
+    stroke-width: 1px;
+}
+
+.axis path {
+    fill: none;
+    stroke: #444;
+    stroke-width: 1px;
+    shape-rendering: crispEdges;
+}
+
+.grid line {
+    stroke: rgba(0, 0, 0, 0.10);
+    stroke-width: 1px;
 }
