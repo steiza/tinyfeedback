@@ -69,7 +69,7 @@
                                 var graph_type = '${graph_type}';
                                 var time = d3.range(0, ${length});
                                 time.forEach(function(each, i) {
-                                    time[i] = new Date(${current_time} + (i * ${time_per_data_point}));
+                                    time[i] = new Date(${current_time} + ((i - ${length}) * ${time_per_data_point}));
                                 });
 
                                 custom_graph('graph_${index}', line_names, data, max, time, ${time_per_data_point}, graph_type);
