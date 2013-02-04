@@ -81,11 +81,11 @@ Custom graphs can be set up at the /edit URL.
 
 **A**: Run something like:
 
-`curl -X DELETE http://127.0.0.1/data/really_important_server/temperature`
+`curl -X DELETE http://127.0.0.1:8000/data/really_important_server/temperature`
 
 or just:
 
-`curl -X DELETE http://127.0.0.1/data/really_important_server`
+`curl -X DELETE http://127.0.0.1:8000/data/really_important_server`
 
 ## License
 
