@@ -16,7 +16,7 @@
 **Q**: What do I need to get started?
 
 **A**:
-A *nix machine with redis. The config is currently in two place: you can specify the port the webserver listens on in tinyfeedback/helper.py and you can tweak the logging in bin/tinyfeedback.
+A *nix machine with redis. The config is currently in two places: you can specify the port the webserver listens on in tinyfeedback/helper.py and you can tweak the logging in bin/tinyfeedback.
 
 To install the dependencies, simply run "pip install -r requirements.txt"
 
