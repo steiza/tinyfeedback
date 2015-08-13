@@ -833,7 +833,7 @@ class Controller(object):
                 length, max_value))
 
 def update_metric_process(queue, redis_host):
-    log = setup_logging('tiny-feedback')
+    log = logging.getLogger('tinyfeedback')
 
     blocking_data = redis_model.BlockingData(redis_host)
 
@@ -852,9 +852,24 @@ def update_metric_process(queue, redis_host):
             log.exception('Encountered exception')
             continue
 
-
 def set_up_server(host, port, log_path, log_level, redis_host='127.0.0.1', redis_pool_size=None):
-    log = setup_logging('tiny-feedback')
+    log = logging.getLogger('tinyfeedback')
+    level = getattr(logging, log_level, logging.INFO)
+    log.setLevel(level)
+
+    if log_path != '':
+        dir_path = os.path.dirname(log_path)
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path, 0755)
+
+        handler = logging.handlers.RotatingFileHandler(log_path,
+                maxBytes=100*1024*1024, backupCount=5)
+
+    else:
+        handler = logging.StreamHandler()
+
+    handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    log.addHandler(handler)
 
     redis_model_data = redis_model.Data(redis_host)
     redis_model_data.connect(redis_pool_size)
