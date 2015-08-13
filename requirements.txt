@@ -3,3 +3,5 @@ simplejson
 twisted
 txredisapi
 txroutes
+numpy
+pandas

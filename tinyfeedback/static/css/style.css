@@ -3,16 +3,8 @@ body {
     margin: 10px;
 }
 
-#cursorlabel {
-    position: absolute;
-}
-
 h2.error {
     color: red;
-}
-
-h3 {
-    font-family: sans-serif;
 }
 
 a {
@@ -35,8 +27,15 @@ span.login {
     float: right;
 }
 
-span.remove {
+span.graph_controls {
     float: right;
+    display: none;
+}
+
+span.graph_title {
+    font-family: sans-serif;
+    font-size: medium;
+    font-weight: bold;
 }
 
 table {
@@ -101,4 +100,72 @@ a:link.bare {
 .grid line {
     stroke: rgba(0, 0, 0, 0.10);
     stroke-width: 1px;
+}
+
+.ui-menu {
+    background-color: white;
+    max-width: 450px;
+    border: 2px solid gray;
+    max-height: 200px;
+    overflow-y: scroll;
+}
+
+.wildcard {
+    width: 500px;
+}
+
+.dashboard-table {
+  padding-left: 20px;
+  border-collapse: collapse;
+}
+.dashboard-table th {
+  text-align: left;
+}
+.dashboard-table td {
+  padding-bottom: 5px;
+}
+
+#infoshow {
+  font-style: italic;
+}
+
+#info {
+  border: 1px solid black;
+  padding: 10px;
+  display: none;
+  vertical-align: top;
+}
+
+.stats-table {
+  border-collapse: collapse;
+  border: 2px solid black;
+  text-align: center;
+}
+.stats-table td {
+  border: 1px solid black;
+  padding: 5px;
+}
+.stats-table th {
+  font-weight: bold;
+  border: 1px solid black;
+  padding: 5px;
+}
+
+.color-table {
+  border-collapse: collapse;
+  border: 1px solid black;
+}
+
+.tabledata {
+  min-width: 20px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#colorbutton, .statsbutton, .statsgraph {
+  display: none;
+}
+
+.colorOverride {
+  background-color: white !important;
 }

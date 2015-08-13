@@ -30,7 +30,7 @@
     </head>
     <body>
         <%include file="login.mako" args="username='${username}'"/>
-        <h2><a class='nav' href='/'>tf</a> :: <a class='nav' href='/#components'>components</a> :: ${component}</h2>
+        <h2><a class='nav' href='/'>tf</a> :: <a class='nav' href='/view'>components</a> :: ${component}</h2>
         <div class='timescale'>
         % for each_timescale in timescales:
             % if timescale == each_timescale:
