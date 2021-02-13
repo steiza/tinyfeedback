@@ -6,10 +6,12 @@ import datetime
 import cgi
 import logging
 import logging.handlers
+import multiprocessing
 import os
+import Queue
+import re
 import time
 import urllib
-import re
 
 import mako.template
 import mako.lookup
@@ -22,6 +24,8 @@ import txroutes
 
 import redis_model
 
+import numpy as np
+import pandas as pd
 
 def straighten_out_request(f):
     # The twisted request dictionary return values as lists, this un-does that
@@ -57,13 +61,15 @@ def straighten_out_request(f):
 
 class Controller(object):
 
-    def __init__(self, redis_model_data, redis_model_graph, log):
+    def __init__(self, redis_model_data, redis_model_graph, queue, log):
         self.__redis_model_data = redis_model_data
         self.__redis_model_graph = redis_model_graph
+        self.__queue = queue
         self._log = log
 
         self.timescales = ['6h', '36h', '1w', '1m', '6m']
         self.graph_types = ['line', 'stacked']
+        self.timezones = ['UTC', 'local']
 
         # Set up template lookup directory
         self.__template_lookup = mako.lookup.TemplateLookup(
@@ -74,85 +80,108 @@ class Controller(object):
     @straighten_out_request
     def get_index(self, request):
         username = request.getCookie('username')
+        timezone = request.getCookie('timezone')
+
+        if timezone is None:
+            current_utc_time = datetime.datetime.utcnow()
+            current_utc_time += datetime.timedelta(days=365)
+            expires_str = current_utc_time.strftime('%a, %d-%b-%Y %H:%M:%S GMT')
+
+            request.addCookie('timezone', 'local', expires=expires_str)
+            timezone = 'local'
 
         if 'edit' in request.args:
             edit = request.args['edit']
         else:
             edit = None
 
-        self.__finish_get_index(request, username, edit)
+        self.__finish_get_index(request, username, timezone, edit)
 
         return NOT_DONE_YET
 
     @defer.inlineCallbacks
-    def __finish_get_index(self, request, username, edit):
-        components = yield self.__redis_model_data.get_components()
+    def __finish_get_index(self, request, username, timezone, edit):
 
-        # Look up custom graphs for this user
         if username is not None:
             graphs = yield self.__redis_model_graph.get_graphs(username)
         else:
             graphs = {}
 
-        graph_data = [None] * len(graphs)
+        graph_titles = [None] * len(graphs)
+        graph_titles_urlencoded = [None] * len(graphs)
 
         for title, each_graph in graphs.iteritems():
-            graph_data[each_graph['ordering']] = yield self.__get_graph_details(
-                    title, each_graph)
+            graph_titles[each_graph['ordering']] = title
+            graph_titles_urlencoded[each_graph['ordering']] = urllib.quote_plus(title).replace('%2F', '$2F')
 
         template = self.__template_lookup.get_template('index.mako')
 
-        ret = template.render(components=components, username=username,
-                dashboard_username=username, edit=edit, graphs=graph_data,
-                cgi=cgi).encode('utf8')
+        ret = template.render(username=username,
+                dashboard_username=username, edit=edit, graph_titles=graph_titles, graph_titles_urlencoded=graph_titles_urlencoded,
+                timezone=timezone, cgi=cgi).encode('utf8')
+
+        request.write(ret)
+        request.finish()
+
+    def get_user_dashboard(self, request, dashboard_username):
+        username = request.getCookie('username')
+        timezone = request.getCookie('timezone')
+
+        if timezone is None:
+            current_utc_time = datetime.datetime.utcnow()
+            current_utc_time += datetime.timedelta(days=365)
+            expires_str = current_utc_time.strftime('%a, %d-%b-%Y %H:%M:%S GMT')
+
+            request.addCookie('timezone', 'local', expires=expires_str)
+            timezone = 'local'
+
+        self.__finish_get_user_dashboard(request, dashboard_username,
+                username, timezone)
+
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_get_user_dashboard(self, request, dashboard_username,
+            username, timezone):
+
+        graphs = yield self.__redis_model_graph.get_graphs(dashboard_username)
+
+        graph_titles = [None] * len(graphs)
+        graph_titles_urlencoded = [None] * len(graphs)
+
+        for title, each_graph in graphs.iteritems():
+            graph_titles[each_graph['ordering']] = title
+            graph_titles_urlencoded[each_graph['ordering']] = urllib.quote_plus(title).replace('%2F', '$2F')
+
+        template = self.__template_lookup.get_template('index.mako')
+
+        ret = template.render(username=username,
+                dashboard_username=dashboard_username, edit=None,
+                graph_titles=graph_titles, graph_titles_urlencoded=graph_titles_urlencoded, timezone=timezone, cgi=cgi).encode('utf8')
 
         request.write(ret)
         request.finish()
 
     def get_dashboards(self, request):
         username = request.getCookie('username')
-        self.__finish_get_dashboards(request, username)
+        timezone = request.getCookie('timezone')
+        if timezone is None:
+            timezone = 'local'
+
+        self.__finish_get_dashboards(request, username, timezone)
 
         return NOT_DONE_YET
 
     @defer.inlineCallbacks
-    def __finish_get_dashboards(self, request, username):
+    def __finish_get_dashboards(self, request, username, timezone):
         graphs_per_user = yield self.__redis_model_graph.get_graphs_per_user()
 
         template = self.__template_lookup.get_template('dashboards.mako')
 
         page = template.render(username=username,
-                graphs_per_user=graphs_per_user).encode('utf8')
+                graphs_per_user=graphs_per_user, timezone=timezone).encode('utf8')
 
         request.write(page)
-        request.finish()
-
-    def get_user_dashboards(self, request, dashboard_username):
-        username = request.getCookie('username')
-        self.__finish_get_user_dashboards(request, dashboard_username,
-                username)
-
-        return NOT_DONE_YET
-
-    @defer.inlineCallbacks
-    def __finish_get_user_dashboards(self, request, dashboard_username,
-            username):
-
-        graphs = yield self.__redis_model_graph.get_graphs(dashboard_username)
-
-        graph_data = [None] * len(graphs)
-
-        for title, each_graph in graphs.iteritems():
-            graph_data[each_graph['ordering']] = yield self.__get_graph_details(
-                    title, each_graph)
-
-        template = self.__template_lookup.get_template('index.mako')
-
-        ret = template.render(components=[], username=username,
-                dashboard_username=dashboard_username, edit=None,
-                graphs=graph_data, cgi=cgi).encode('utf8')
-
-        request.write(ret)
         request.finish()
 
     def delete_user(self, request, dashboard_username):
@@ -222,6 +251,9 @@ class Controller(object):
     @straighten_out_request
     def get_edit(self, request):
         username = request.getCookie('username')
+        timezone = request.getCookie('timezone')
+        if timezone is None:
+            timezone = 'local'
 
         title = request.args.get('title', '')
         title = urllib.unquote_plus(title.replace('$2F', '%2F'))
@@ -234,12 +266,12 @@ class Controller(object):
             request.redirect('/')
             return ''
 
-        self.__finish_get_edit(request, username, title)
+        self.__finish_get_edit(request, username, title, timezone)
 
         return NOT_DONE_YET
 
     @defer.inlineCallbacks
-    def __finish_get_edit(self, request, username, title):
+    def __finish_get_edit(self, request, username, title, timezone):
         data_sources = {}
 
         components = yield self.__redis_model_data.get_components()
@@ -254,10 +286,12 @@ class Controller(object):
         if title and title in graphs:
             fields = graphs[title]['fields']
             active_components = [each.split('|')[0] for each in fields]
+            updates_infrequently = graphs[title].get('updates_infrequently', False)
 
         else:
             fields = []
             active_components = []
+            updates_infrequently = False
 
         graph_type = request.args.get('graph_type', '')
 
@@ -265,8 +299,9 @@ class Controller(object):
 
         ret = template.render(kwargs=request.args, fields=fields,
                 data_sources=data_sources, active_components=active_components,
-                username=username, timescales=self.timescales,
-                graph_types=self.graph_types, cgi=cgi).encode('utf8')
+                updates_infrequently=updates_infrequently, username=username,
+                timescales=self.timescales, graph_types=self.graph_types, timezone=timezone,
+                cgi=cgi).encode('utf8')
 
         request.write(ret)
         request.finish()
@@ -294,16 +329,16 @@ class Controller(object):
         title = request.args['title']
         timescale = request.args['timescale']
         graph_type = request.args['graph_type']
+        updates_infrequently = request.args.get('updates_infrequently', False)
 
         keys = request.args.keys()
-        index = keys.index('title')
-        del keys[index]
 
-        index = keys.index('graph_type')
-        del keys[index]
+        for each in ['title', 'graph_type', 'timescale',
+                'updates_infrequently']:
 
-        index = keys.index('timescale')
-        del keys[index]
+            if each in keys:
+                index = keys.index(each)
+                del keys[index]
 
         # Make sure any wildcards are correctly formatted
         for each_key in keys:
@@ -316,16 +351,16 @@ class Controller(object):
                 return ''
 
         self.__finish_post_edit(request, username, title, timescale, keys,
-                graph_type)
+                graph_type, updates_infrequently)
 
         return NOT_DONE_YET
 
     @defer.inlineCallbacks
     def __finish_post_edit(self, request, username, title, timescale, keys,
-            graph_type):
+            graph_type, updates_infrequently):
 
         yield self.__redis_model_graph.update_graph(username, title, timescale,
-                keys, graph_type)
+                keys, graph_type, updates_infrequently)
 
         request.setResponseCode(303)
         request.redirect('/')
@@ -337,40 +372,87 @@ class Controller(object):
 
         username = request.getCookie('username')
 
+        timezone = request.getCookie('timezone')
+        if timezone is None:
+            timezone = 'local'
+
+        graph_timezone = request.args.get('timezone', None)
+        if graph_timezone is None:
+            graph_timezone = timezone
+
         # HACK: routes can't handle URLs with %2F in them ('/')
         # so replace '$2F' with '%2F' as we unquote the title
         title = urllib.unquote_plus(title.replace('$2F', '%2F'))
 
         graph_type = request.args.get('graph_type', '')
         timescale = request.args.get('timescale', '')
+        autorefresh = request.args.get('refresh', False)
         force_max_value = float(request.args.get('max', 0))
 
-        for each in [graph_type, timescale]:
-            if each == '':
-                request.setResponseCode(400)
-                return ''
-
         self.__finish_get_graph(request, username, graph_username, title,
-                graph_type, timescale, force_max_value)
+            graph_timezone, timezone, graph_type, timescale, autorefresh, force_max_value)
 
         return NOT_DONE_YET
 
     @defer.inlineCallbacks
     def __finish_get_graph(self, request, username, graph_username, title,
-            graph_type, timescale, force_max_value):
-
-        graphs = yield self.__redis_model_graph.get_graphs(graph_username)
-
-        graph_details = yield self.__get_graph_details(title, graphs[title],
-                graph_type, timescale)
+        graph_timezone, timezone, graph_type, timescale, autorefresh, force_max_value):
 
         template = self.__template_lookup.get_template('graph.mako')
 
         ret = template.render(username=username, graph_username=graph_username,
-                title=title, graph_type=graph_type, graph=[graph_details],
-                force_max_value=force_max_value).encode('utf8')
+                title=title, graph_type=graph_type, timescale=timescale, force_max_value=force_max_value, graph_timezone=graph_timezone, timezone=timezone, autorefresh=autorefresh).encode('utf8')
 
         request.write(ret)
+        request.finish()
+
+    def get_components(self, request):
+        username = request.getCookie('username')
+        self.__finish_get_components(request, username)
+
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_get_components(self, request, username):
+
+        components = yield self.__redis_model_data.get_components()
+
+        template = self.__template_lookup.get_template('components.mako')
+
+        page = template.render(username=username,
+                components=components).encode('utf8')
+
+        request.write(page)
+        request.finish()
+
+    @straighten_out_request
+    def get_stats(self, request, graph_username, title):
+
+        self._log.debug('get stats %s %s', graph_username, title)
+
+        graph_type = request.args.get('graph_type', '')
+        timescale = request.args.get('timescale', '')
+
+        username = request.getCookie('username')
+        timezone = request.getCookie('timezone')
+        if timezone is None:
+            timezone = 'local'
+
+        title = urllib.unquote_plus(title.replace('$2F', '%2F'))
+
+        self.__finish_get_stats(request, username, graph_username, title,
+                timezone, timescale, graph_type)
+
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_get_stats(self, request, username, graph_username, title, timezone, timescale, graph_type):
+
+        template = self.__template_lookup.get_template('statistics.mako')
+
+        page = template.render(username=username, graph_username=graph_username, title=title, timezone=timezone, timescale=timescale, graph_type=graph_type).encode('utf8')
+
+        request.write(page)
         request.finish()
 
     # AJAX calls to manipulate user state
@@ -427,7 +509,8 @@ class Controller(object):
                 graph_type = graphs[title]['graph_type']
 
             yield self.__redis_model_graph.update_graph(username, title,
-                    timescale, graphs[title]['fields'], graph_type)
+                    timescale, graphs[title]['fields'], graph_type,
+                    graphs[title].get('updates_infrequently', False))
 
         request.setResponseCode(303)
         request.redirect('/')
@@ -438,32 +521,13 @@ class Controller(object):
     def post_data(self, request, component):
         self._log.debug('posting data for %s %s', component, request.args)
 
-        deferreds = []
+        try:
+            self.__queue.put([component, request.args], block=False)
+            return 'OK\n'
 
-        for metric, value in request.args.iteritems():
-            deferred = self.__redis_model_data.update_metric(component, metric,
-                    int(value))
-
-            deferreds.append(deferred)
-
-        defer_list = defer.DeferredList(deferreds, consumeErrors=True)
-        defer_list.addCallback(self.__finish_post_data, request)
-
-        return NOT_DONE_YET
-
-    def __finish_post_data(self, responses, request):
-        errors = []
-        for (success, exception) in responses:
-            if not success:
-                errors.append(exception.value.message)
-
-        if errors:
+        except Queue.Full:
             request.setResponseCode(400)
-            request.write(simplejson.dumps(errors))
-        else:
-            request.write('OK')
-
-        request.finish()
+            return simplejson.dumps({'error': 'Too many pending requests'})
 
     @straighten_out_request
     def get_data(self, request, component, metric):
@@ -482,6 +546,73 @@ class Controller(object):
                 timescale)
 
         request.write(simplejson.dumps(data))
+        request.finish()
+
+    @straighten_out_request
+    def get_graph_data(self, request, graph_username, title):
+        timescale = request.args.get('timescale', None)
+        graph_type = request.args.get('graph_type', None)
+
+        if timescale not in self.timescales:
+            timescale = None
+        if graph_type not in self.graph_types:
+            graph_type = None
+
+        self.__finish_get_graph_data(request, graph_username, title, timescale, graph_type)
+
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_get_graph_data(self, request, graph_username, title, timescale, graph_type):
+        graphs = yield self.__redis_model_graph.get_graphs(graph_username)
+
+        # HACK: routes can't handle URLs with %2F in them ('/')
+        # so replace '$2F' with '%2F' as we unquote the title
+        title = urllib.unquote_plus(title.replace('$2F', '%2F'))
+
+        graph_details = yield self.__get_graph_details(title, graphs[title], graph_type, timescale)
+
+        request.write(simplejson.dumps(graph_details))
+        request.finish()
+
+    @straighten_out_request
+    def get_stats_data(self, request, graph_username, title):
+        timescale = request.args.get('timescale', None)
+        graph_type = request.args.get('graph_type', None)
+
+        if timescale not in self.timescales:
+            timescale = None
+        if graph_type not in self.graph_types:
+            graph_type = None
+
+        self.__finish_get_stats_data(request, graph_username, title, timescale, graph_type)
+
+        return NOT_DONE_YET
+
+    @defer.inlineCallbacks
+    def __finish_get_stats_data(self, request, graph_username, title, timescale, graph_type):
+        graphs = yield self.__redis_model_graph.get_graphs(graph_username)
+
+        # HACK: routes can't handle URLs with %2F in them ('/')
+        # so replace '$2F' with '%2F' as we unquote the title
+        title = urllib.unquote_plus(title.replace('$2F', '%2F'))
+
+        graph_details = yield self.__get_graph_details(title, graphs[title],
+                graph_type, timescale)
+
+        line_names = graph_details[6]
+        data_rows = graph_details[7]
+
+        summarystats = [None] * len(data_rows)
+        for i in xrange(0, len(data_rows)):
+            summarystats[i] = self.__get_summarystats(line_names[i], data_rows[i])
+
+        percentiles, rolling, percents = self.__get_stats_tables_data(data_rows)
+
+        toWrite = {"graph_details": graph_details, "summary": summarystats,
+                    "percentiles": percentiles, "rolling": rolling, "percents": percents}
+
+        request.write(simplejson.dumps(toWrite))
         request.finish()
 
     @straighten_out_request
@@ -515,6 +646,10 @@ class Controller(object):
 
         request.addCookie('username', username, expires=expires_str)
 
+        timezone = request.getCookie('timezone')
+        if timezone is None:
+            request.addCookie('timezone', 'local', expires=expires_str)
+
         referer = request.getHeader('Referer')
         if referer is None:
             referer = '/'
@@ -537,7 +672,58 @@ class Controller(object):
         request.redirect(referer)
         return ''
 
+    @straighten_out_request
+    def post_timezone(self, request):
+
+        new_timezone = request.args.get('timezone', None)
+
+        if new_timezone is not None:
+            current_utc_time = datetime.datetime.utcnow()
+            current_utc_time += datetime.timedelta(days=365)
+            expires_str = current_utc_time.strftime('%a, %d-%b-%Y %H:%M:%S GMT')
+
+            request.addCookie('timezone', new_timezone, expires=expires_str)
+
+        referer = request.getHeader('Referer')
+        if referer is None:
+            referer = '/'
+
+        request.setResponseCode(303)
+        request.redirect(referer)
+        return ''
+
     # Helpers
+    def __get_summarystats(self, title, data):
+        data_min = np.amin(data)
+        data_max = np.amax(data)
+        data_range = data_max-data_min
+        data_mean = np.mean(data)
+        data_median = np.median(data)
+        data_std = np.std(data)
+
+        return (title, data_min, data_max, data_range, data_mean, data_median, data_std)
+
+    def __get_stats_tables_data(self, data):
+        all_data = sum(data, [])
+        percentiles =  [None] * 100
+        for i in xrange(101):
+            percentiles[i-1] = [i, np.percentile(all_data, i)]
+
+        dataFrame = pd.DataFrame(np.array(data).T)
+
+        rollingPrep = pd.rolling_mean(dataFrame, window=10)
+        rollingPrep = rollingPrep.replace([np.inf, -np.inf], ["inf", "-inf"])
+        rollingPrep = rollingPrep.fillna('na')
+        rolling = np.array(rollingPrep).tolist()
+
+        percentsPrep = dataFrame.pct_change(5)
+        percentsPrep = 100 * np.round(percentsPrep, decimals=2)
+        percentsPrep = percentsPrep.replace([np.inf, -np.inf], ["inf", "-inf"])
+        percentsPrep = percentsPrep.fillna('na')
+        percents = np.array(percentsPrep).tolist()
+
+        return (percentiles, rolling, percents)
+
     @defer.inlineCallbacks
     def __get_graph_details(self, title, graph, graph_type=None,
             timescale=None):
@@ -547,6 +733,8 @@ class Controller(object):
 
         if not timescale or timescale not in self.timescales:
             timescale = graph['timescale']
+
+        updates_infrequently = graph.get('updates_infrequently', False)
 
         fields = graph['fields']
         fields.sort() # TODO: migrate graphs so fields are already sorted
@@ -582,7 +770,6 @@ class Controller(object):
 
             else:
                 matching_components = [component]
-
 
             for each_component in matching_components:
                 metrics = yield self.__redis_model_data.get_metrics(
@@ -620,12 +807,10 @@ class Controller(object):
                             line_names.append(line_name.encode('utf8'))
 
                             data = yield self.__redis_model_data.get_data(
-                                    each_component, each_metric, timescale)
+                                    each_component, each_metric, timescale,
+                                    updates_infrequently)
 
                             data_rows.append(data)
-
-        # d3 wants time in ms
-        current_time_slot = (int(time.time()) / 60 * 60) * 1000
 
         if len(data_rows) > 0:
             length = max([len(row) for row in data_rows])
@@ -644,12 +829,30 @@ class Controller(object):
 
         defer.returnValue((title, title_urlencoded, graph_type,
                 urllib.quote_plus(graph_type), timescale,
-                time_per_data_point, line_names, data_rows, current_time_slot,
+                time_per_data_point, line_names, data_rows,
                 length, max_value))
 
+def update_metric_process(queue, redis_host):
+    log = logging.getLogger('tinyfeedback')
 
-def set_up_server(port, log_path, log_level):
-    # Set up logging
+    blocking_data = redis_model.BlockingData(redis_host)
+
+    while True:
+        try:
+            (component, args) = queue.get(timeout=1)
+
+            for metric, value in args.iteritems():
+                blocking_data.update_metric(component, metric,
+                        int(float(value)))
+
+        except Queue.Empty:
+            continue
+
+        except Exception, e:
+            log.exception('Encountered exception')
+            continue
+
+def set_up_server(host, port, log_path, log_level, redis_host='127.0.0.1', redis_pool_size=None):
     log = logging.getLogger('tinyfeedback')
     level = getattr(logging, log_level, logging.INFO)
     log.setLevel(level)
@@ -668,15 +871,25 @@ def set_up_server(port, log_path, log_level):
     handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     log.addHandler(handler)
 
-    # Connect to redis
-    redis_model_data = redis_model.Data('127.0.0.1')
-    redis_model_data.connect()
+    redis_model_data = redis_model.Data(redis_host)
+    redis_model_data.connect(redis_pool_size)
 
-    redis_model_graph = redis_model.Graph('127.0.0.1')
-    redis_model_graph.connect()
+    redis_model_graph = redis_model.Graph(redis_host)
+    redis_model_graph.connect(redis_pool_size)
 
-    # Set up the webserver
-    controller = Controller(redis_model_data, redis_model_graph, log)
+    queue = multiprocessing.Queue(50)
+
+    for i in xrange(2):
+        p = multiprocessing.Process(target=update_metric_process,
+                kwargs={
+                    'queue': queue,
+                    'redis_host': redis_host,
+                    })
+
+        p.daemon = True
+        p.start()
+
+    controller = Controller(redis_model_data, redis_model_graph, queue, log)
 
     dispatcher = txroutes.Dispatcher()
 
@@ -687,8 +900,8 @@ def set_up_server(port, log_path, log_level):
     dispatcher.connect('get_dashboards', '/dashboards', controller=controller,
             action='get_dashboards', conditions=dict(method=['GET']))
 
-    dispatcher.connect('get_user_dashboards', '/dashboards/{dashboard_username}',
-            controller=controller, action='get_user_dashboards',
+    dispatcher.connect('get_user_dashboard', '/dashboards/{dashboard_username}',
+            controller=controller, action='get_user_dashboard',
             conditions=dict(method=['GET']))
 
     dispatcher.connect('delete_user', '/dashboards/{dashboard_username}',
@@ -709,6 +922,14 @@ def set_up_server(port, log_path, log_level):
             controller=controller, action='get_graph',
             conditions=dict(method=['GET']))
 
+    dispatcher.connect('get_components', '/view',
+            controller=controller, action='get_components',
+            conditions=dict(method=['GET']))
+
+    dispatcher.connect('get_stats', '/stats/{graph_username}/{title}',
+            controller=controller, action='get_stats',
+            conditions=dict(method=['GET']))
+
     # AJAX calls to manipulate user state
     dispatcher.connect('post_graph_ordering', '/graph_ordering',
             controller=controller, action='post_graph_ordering',
@@ -726,6 +947,14 @@ def set_up_server(port, log_path, log_level):
             controller=controller, action='get_data',
             conditions=dict(method=['GET']))
 
+    dispatcher.connect('get_graph_data', '/graphdata/{graph_username}/{title}',
+            controller=controller, action='get_graph_data',
+            conditions=dict(method=['GET']))
+
+    dispatcher.connect('get_stats_data', '/statsdata/{graph_username}/{title}',
+            controller=controller, action='get_stats_data',
+            conditions=dict(method=['GET']))
+
     dispatcher.connect('delete_data', '/data/:component',
             controller=controller, action='delete_data',
             conditions=dict(method=['DELETE']))
@@ -741,12 +970,15 @@ def set_up_server(port, log_path, log_level):
     dispatcher.connect('get_logout', '/logout', controller=controller,
             action='get_logout', conditions=dict(method=['GET']))
 
+    dispatcher.connect('post_timezone', '/timezone', controller=controller,
+            action='post_timezone', conditions=dict(method=['POST']))
+
     static_path = os.path.join(os.path.dirname(__file__), 'static')
 
     dispatcher.putChild('static', File(static_path))
 
     factory = Site(dispatcher)
-    reactor.listenTCP(port, factory)
+    reactor.listenTCP(port, factory, interface=host)
 
     log.info('tiny feedback running on port %d', port)
 

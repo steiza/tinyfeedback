@@ -1,10 +1,32 @@
 <script type='text/javascript'>
   function custom_graph(container_id, line_names, data, max, time, time_per_data_point, graph_type, width, height) {
-    var margins = {top: 10, right: 10, bottom: 150, left: 50};
+    var singleGraphLegendHeight = 10*line_names.length;
+    var singleGraphMarginBottom = 50 + singleGraphLegendHeight;
+
+    var margins = {top: 20, right: 10, bottom: singleGraphMarginBottom, left: 50};
     var width = width || 500;
-    var height = height || 300;
+    var height = height || 301;
+
+    var maxLabelLength = 65;
+
+    var isOnDashboard = (height === 301);
+    var dashboardMarginBottom = 160;
+    var dashboardMaxLabelLength = 35;
+    if (isOnDashboard) {
+      margins.bottom = dashboardMarginBottom;
+      maxLabelLength = dashboardMaxLabelLength;
+    }
+
     var graph_width = width - margins.left - margins.right;
     var graph_height = height - margins.top - margins.bottom;
+    var graph_center_width = graph_width/2;
+
+    function get_legend_dimensions(i) {
+      var legend_height = graph_height + margins.top + 30 + 20*Math.round((i-1)/2);
+      var legend_width = (width/2) * (i % 2) - 30;
+
+      return [legend_height, legend_width]
+    }
 
     // HACK: if the last value is 0, set it to the previous value so graphs don't always drop off to 0
     data.forEach(function(each) {
@@ -20,8 +42,8 @@
 
     var colors = ['#ff0000', '#ff8000', '#fff000', '#00ff00', '#00ffff',
         '#0000ff', '#ff00ff', '#ff8080', '#814100', '#808080', '#000000',
-        '#aa00cc', '#ee00ee', '#00eebb', '#ff99dd', '#55bb00', '#eeeeff',
-        '#ee00cc', '#44bbff', '#00ff88', '#dddddd' , '#880000'];
+        '#fa8072', '#ffb6c1', '#ff6347', '#d2b48c', '#f0e68c', '#00fa9a',
+        '#00ffff', '#87c2fa', '#d8bfd8', '#dda0dd'];
 
     var graph = d3.select('#' + container_id).append('svg')
         .attr('class', 'chart')
@@ -43,11 +65,11 @@
       var path = d3.select(this);
 
       var all_paths = d3.select(path[0][0].parentElement.parentElement)
-          .selectAll('path')
+          .selectAll('path');
 
       // Dim all paths
       all_paths.each(function() {
-        d3.select(this).style('opacity', 0.3);
+        d3.select(this).style('opacity', .3);
       });
 
       // Leave this path undimmed
@@ -62,7 +84,7 @@
       var path = d3.select(this);
 
       var all_paths = d3.select(path[0][0].parentElement.parentElement)
-          .selectAll('path')
+          .selectAll('path');
 
       // Undim all paths
       all_paths.each(function() {
@@ -71,6 +93,65 @@
 
       d3.select('.tooltip')
           .style('display', 'none');
+    }
+
+    function legendMouseOver() {
+      var label = d3.select(this);
+      var label_name = label.attr('line_name');
+      var labels = d3.select(label[0][0].parentElement.parentElement)
+          .selectAll('.axis');
+
+      var paths = d3.select(label[0][0].parentElement.parentElement)
+          .selectAll('.line');
+      if (graph_type == 'stacked') {
+        paths = d3.select(label[0][0].parentElement.parentElement)
+            .selectAll('.area');
+      }
+
+      var selectedline = d3.select(label[0][0].parentElement.parentElement)
+          .selectAll('.selectedlinelabel');
+      selectedline.text(label_name);
+
+      // dim lines in graph
+      paths.each(function() {
+        if (label_name != d3.select(this).attr('line_name')) {
+          d3.select(this).style('opacity', .3);
+        }
+      });
+
+      // dim other labels (but not the axes)
+      labels.each(function() {
+        var isAxis = (d3.select(this).classed('x') || d3.select(this).classed('y'));
+        if ((label_name != d3.select(this).attr('line_name')) && !isAxis) {
+          d3.select(this).style('opacity', .3);
+        }
+      });
+    }
+
+    function legendMouseOut() {
+      var label = d3.select(this);
+      var labels = d3.select(label[0][0].parentElement.parentElement)
+          .selectAll('.axis');
+      var paths = d3.select(label[0][0].parentElement.parentElement)
+          .selectAll('.line');
+      if (graph_type == 'stacked') {
+        paths = d3.select(label[0][0].parentElement.parentElement)
+            .selectAll('.area');
+      }
+
+      var selectedline = d3.select(label[0][0].parentElement.parentElement)
+          .selectAll('.selectedlinelabel');
+      selectedline.text('');
+
+      // undim all labels
+      labels.each(function() {
+        d3.select(this).style('opacity', 1);
+      });
+
+      // undim all paths
+      paths.each(function() {
+        d3.select(this).style('opacity', 1);
+      });
     }
 
     // Calculate the axes
@@ -128,6 +209,7 @@
         .scale(y)
         .ticks(8)
         .tickSize(5, 0) // 5px is how "tall" the ticks are, 0 gets rid of end tick
+        .tickFormat(d3.format('s'))
         .orient('left');
 
     var yGrid = d3.svg.axis()
@@ -201,10 +283,24 @@
         .attr('class', 'y axis')
         .call(yAxis);
 
-    // Draw the legend
+    // hovered over legend label
+    graph.append('text')
+      .attr('class', 'selectedlinelabel')
+      .attr('font-family', 'sans-serif')
+      .attr('font-size', '13px')
+      .attr('transform', 'translate(' + graph_center_width +', -10)')
+      .style('text-anchor', 'middle')
+      .text('');
+
+    // draw legend
     line_names.forEach(function(each, i) {
-      var legend_height = graph_height + margins.top + 30 + 20*Math.round((i - 1) / 2);
-      var legend_width = 250 * (i % 2) - 30;
+      var legend_dimensions = get_legend_dimensions(i);
+      var legend_height = legend_dimensions[0];
+      var legend_width = legend_dimensions[1];
+
+      if (each.length > maxLabelLength) {
+        each = each.slice(0, maxLabelLength) + '...';
+      }
 
       graph.append('circle')
           .attr('transform', 'translate(' + legend_width + ', ' + legend_height + ')')
@@ -214,15 +310,14 @@
       legend_height = legend_height + 4;
       legend_width = legend_width + 10;
 
-      if (each.length > 35) {
-        each = each.slice(0, 35) + '...';
-      }
-
       graph.append('text')
           .attr('class', 'axis')
           .attr('transform', 'translate(' + legend_width + ', ' + legend_height + ')')
           .attr('font-size', '13px')
-          .text(each);
+          .text(each)
+          .attr('line_name', line_names[i])
+          .on('mouseover', legendMouseOver)
+          .on('mouseout', legendMouseOut);
     });
   }
 </script>

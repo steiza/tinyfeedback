@@ -14,5 +14,5 @@ LOG_LEVEL = 'DEBUG'
 
 
 if __name__ == '__main__':
-    tinyfeedback.webserver.set_up_server(port=tinyfeedback.helper.PORT,
+    tinyfeedback.webserver.set_up_server(host=tinyfeedback.helper.HOST, port=tinyfeedback.helper.PORT,
             log_path=LOG_PATH, log_level=LOG_LEVEL)

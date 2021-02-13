@@ -11,19 +11,24 @@
         % if len(graphs_per_user) == 0:
             None yet! Log in above!
         % else:
-            <ul>
-                % for username, graph_count in graphs_per_user:
-                    <li>
-                        <a href='/dashboards/${username}'>${username}'s dashboard</a>
-                        - ${graph_count}
-                        % if graph_count == 1:
-                            graph
-                        % else:
-                            graphs
-                        % endif
-                    </li>
-                % endfor
-            </ul>
+            <table class="dashboard-table">
+            <tr>
+                <th>Dashboard</th>
+                <th>Number of graphs</th>
+            </tr>
+            % for username, graph_count in graphs_per_user:
+            <tr>
+                <td><a href="/dashboards/${username}">${username}</a></td>
+                <td><a href="/dashboards/${username}">${graph_count}
+                % if graph_count == 1:
+                    graph
+                % else:
+                    graphs
+                % endif
+                </a></td>
+            </tr>
+            % endfor
+            </table>
         % endif
     </body>
 </html>

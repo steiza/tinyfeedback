@@ -1,6 +1,7 @@
 import re
 import time
 
+import redis
 import simplejson
 from twisted.internet import defer, protocol, reactor
 import txredisapi
@@ -18,9 +19,10 @@ class Graph(object):
     @defer.inlineCallbacks
     def connect(self, poolsize=None):
         if not poolsize:
-            poolsize = 10
+            poolsize = 50
 
-        self.__redis = yield txredisapi.ConnectionPool(self.__host, poolsize=poolsize)
+        self.__redis = yield txredisapi.ConnectionPool(self.__host,
+                poolsize=poolsize)
 
     @defer.inlineCallbacks
     def add_username(self, username):
@@ -37,12 +39,16 @@ class Graph(object):
         user_key = 'tinyfeedback:usernames'
         usernames = yield self.__redis.smembers(user_key)
 
+        graphs_per_user = []
+
+        if usernames is None or len(usernames) == 0:
+            defer.returnValue(graphs_per_user)
+
         keys = ['tinyfeedback:graph:%s:all_graphs' % each_username for \
                 each_username in usernames]
 
         user_graphs = yield self.__redis.mget(keys)
 
-        graphs_per_user = []
         for i, each_username in enumerate(usernames):
             if not user_graphs[i]:
                 num_graphs = 0
@@ -103,7 +109,9 @@ class Graph(object):
                 continue
 
     @defer.inlineCallbacks
-    def update_graph(self, username, title, timescale, fields, graph_type):
+    def update_graph(self, username, title, timescale, fields, graph_type,
+            updates_infrequently):
+
         key = 'tinyfeedback:graph:%s:all_graphs' % username
 
         fields.sort()
@@ -134,6 +142,7 @@ class Graph(object):
                 graphs[title]['timescale'] = timescale
                 graphs[title]['fields'] = fields
                 graphs[title]['graph_type'] = graph_type
+                graphs[title]['updates_infrequently'] = updates_infrequently
 
                 yield transaction.set(key, simplejson.dumps(graphs))
 
@@ -171,23 +180,261 @@ class Graph(object):
                 continue
 
 
+class BlockingData(object):
+    def __init__(self, host):
+        self.__redis = redis.StrictRedis(host=host)
+
+    def __get_max_min(self, subset):
+        min_value = min(subset)
+        max_value = max(subset)
+
+        if subset.index(min_value) < subset.index(max_value):
+            return min_value, max_value
+        else:
+            return max_value, min_value
+
+    def __return_up_to_date_data(self, pipeline, component, metric, update_value=None):
+        keys = ['tinyfeedback:data:component:%s:metric:%s:last_updated' % (component, metric),
+                'tinyfeedback:data:component:%s:metric:%s:6h' % (component, metric),
+                'tinyfeedback:data:component:%s:metric:%s:36h' % (component, metric),
+                'tinyfeedback:data:component:%s:metric:%s:1w' % (component, metric),
+                'tinyfeedback:data:component:%s:metric:%s:1m' % (component, metric),
+                'tinyfeedback:data:component:%s:metric:%s:6m' % (component, metric),
+                ]
+
+        data = pipeline.mget(keys)
+        data_changed = False
+
+        # Load the data in the format we want
+        if data[0] is None:
+            last_updated = int(time.time()) / 60 * 60
+        else:
+            last_updated = int(data[0])
+
+        if data[1] is None:
+            info_6h = [0] * 360 # 1 min each
+        else:
+            info_6h = simplejson.loads(data[1])
+
+            # HACK: backwards compatability
+            if isinstance(info_6h, dict):
+                last_updated = info_6h['last_updated']
+                info_6h = info_6h['data']
+                data_changed = True
+
+        if data[2] is None:
+            info_36h = [0] * 432 # 5 min each
+        else:
+            info_36h = simplejson.loads(data[2])
+
+            # HACK: backwards compatability
+            if isinstance(info_36h, dict):
+                info_36h = info_36h['data']
+                data_changed = True
+
+        if data[3] is None:
+            info_1w = [0] * 336 # 30 min each
+        else:
+            info_1w = simplejson.loads(data[3])
+
+            # HACK: backwards compatability
+            if isinstance(info_1w, dict):
+                info_1w = info_1w['data']
+                data_changed = True
+
+        if data[4] is None:
+            info_1m = [0] * 360 # 2 hours each
+        else:
+            info_1m = simplejson.loads(data[4])
+
+            # HACK: backwards compatability
+            if isinstance(info_1m, dict):
+                info_1m = info_1m['data']
+                data_changed = True
+
+        if data[5] is None:
+            info_6m = [0] * 360 # 12 hours each
+        else:
+            info_6m = simplejson.loads(data[5])
+
+            # HACK: backwards compatability
+            if isinstance(info_6m, dict):
+                info_6m = info_6m['data']
+                data_changed = True
+
+        update_to = int(time.time()) / 60 * 60
+
+        while last_updated < update_to:
+            data_changed = True
+            last_updated += 60
+
+            # First, save the roll up values
+            if last_updated % 600 == 0:
+                first, second = self.__get_max_min(info_6h[-10:])
+                info_36h[-2] = first
+                info_36h[-1] = second
+
+            if last_updated % 3600 == 0:
+                first, second = self.__get_max_min(info_36h[-12:])
+                info_1w[-2] = first
+                info_1w[-1] = second
+
+            if last_updated % 14400 == 0:
+                first, second = self.__get_max_min(info_1w[-8:])
+                info_1m[-2] = first
+                info_1m[-1] = second
+
+            if last_updated % 86400 == 0:
+                first, second = self.__get_max_min(info_1m[-12:])
+                info_6m[-2] = first
+                info_6m[-1] = second
+
+            # Then, extend arrays
+            info_6h.append(None)
+
+            if last_updated % 600 == 0:
+                info_36h.extend([0, 0])
+
+            if last_updated % 3600 == 0:
+                info_1w.extend([0, 0])
+
+            if last_updated % 14400 == 0:
+                info_1m.extend([0, 0])
+
+            if last_updated % 86400 == 0:
+                info_6m.extend([0, 0])
+
+        if update_value is not None or data_changed:
+            if update_value is not None:
+                info_6h[-1] = update_value
+                data_changed = True
+
+            # Do partial roll ups
+            for (block_size, unit_size, small_array, large_array) in (
+                    (600, 60, info_6h, info_36h),
+                    (3600, 300, info_36h, info_1w),
+                    (14400, 1800, info_1w, info_1m),
+                    (86400, 7200, info_1m, info_6m),
+                    ):
+
+                partial_update_range = (last_updated % block_size /
+                        unit_size) + 1
+
+                first, second = self.__get_max_min(
+                        small_array[-1*partial_update_range:])
+
+                large_array[-2] = first
+                large_array[-1] = second
+
+        return (data_changed, last_updated, info_6h[-360:], info_36h[-432:],
+                info_1w[-336:], info_1m[-360:], info_6m[-360:])
+
+    def update_metric(self, component, metric, value):
+        # Make sure values are sane
+        if not re.match('^[A-Za-z0-9_\.:-]+$', component):
+            return
+            # XXX should return this error to the end-user
+            raise ValueError('Bad component: %s (must only contain A-Z, a-z, 0-9, _, -, :, and .)' % component)
+
+        if not re.match('^[A-Za-z0-9_\.:-]+$', metric):
+            return
+            # XXX should return this error to the end-user
+            raise ValueError('Bad metric: %s (must only contain A-Z, a-z, 0-9, _, -, :, and .)' % metric)
+
+        component = component[:128]
+        metric = metric[:128]
+        value = int(value)
+
+        # Now we can actually update
+        keys = ['tinyfeedback:data:list_components',
+                'tinyfeedback:data:component:%s:list_metrics' % component,
+                'tinyfeedback:data:component:%s:metric:%s:last_updated' % (component, metric),
+                'tinyfeedback:data:component:%s:metric:%s:6h' % (component, metric),
+                'tinyfeedback:data:component:%s:metric:%s:36h' % (component, metric),
+                'tinyfeedback:data:component:%s:metric:%s:1w' % (component, metric),
+                'tinyfeedback:data:component:%s:metric:%s:1m' % (component, metric),
+                'tinyfeedback:data:component:%s:metric:%s:6m' % (component, metric),
+                ]
+
+        with self.__redis.pipeline() as pipeline:
+            while True:
+                try:
+                    pipeline.watch(keys)
+
+                    data = pipeline.mget(keys[:2])
+
+                    # Load the data
+                    _, last_updated, info_6h, info_36h, info_1w, info_1m, \
+                            info_6m = self.__return_up_to_date_data(pipeline,
+                                component, metric, value)
+
+                    pipeline.multi()
+
+                    # Make sure the component is listed
+                    if data[0] is None:
+                        components = [component]
+                        pipeline.set(keys[0], simplejson.dumps(components))
+
+                    else:
+                        components = simplejson.loads(data[0])
+                        if component not in components:
+                            components.append(component)
+                            components.sort()
+                            pipeline.set(keys[0], simplejson.dumps(components))
+
+                    # Make sure the metric is listed
+                    if data[1] is None:
+                        metrics = [metric]
+                        pipeline.set(keys[1], simplejson.dumps(metrics))
+
+                    else:
+                        metrics = simplejson.loads(data[1])
+                        if metric not in metrics:
+                            metrics.append(metric)
+                            metrics.sort()
+                            pipeline.set(keys[1], simplejson.dumps(metrics))
+
+                    # Store the values
+                    pipeline.set(keys[2], last_updated)
+                    pipeline.set(keys[3], simplejson.dumps(info_6h))
+                    pipeline.set(keys[4], simplejson.dumps(info_36h))
+                    pipeline.set(keys[5], simplejson.dumps(info_1w))
+                    pipeline.set(keys[6], simplejson.dumps(info_1m))
+                    pipeline.set(keys[7], simplejson.dumps(info_6m))
+
+                    pipeline.execute()
+                    break
+
+                except redis.WatchError:
+                    continue
+
 class Data(object):
     '''
     tinyfeedback:data:list_components - all components
     tinyfeedback:data:component:<component>:list_metrics - all metrics for a component
+    tinyfeedback:data:component:<component>:metric:<metric>:last_updated - last update to metric
     tinyfeedback:data:component:<component>:metric:<metric>:<timescale> - data
     '''
-
     def __init__(self, host):
         self.__host = host
         self.__update_metric_limit = defer.DeferredSemaphore(25)
 
+    def __get_max_min(self, subset):
+        min_value = min(subset)
+        max_value = max(subset)
+
+        if subset.index(min_value) < subset.index(max_value):
+            return min_value, max_value
+        else:
+            return max_value, min_value
+
     @defer.inlineCallbacks
     def connect(self, poolsize=None):
         if not poolsize:
-            poolsize = 100
+            poolsize = 200
 
-        self.__redis = yield txredisapi.ConnectionPool(self.__host, poolsize=poolsize)
+        self.__redis = yield txredisapi.ConnectionPool(self.__host,
+                poolsize=poolsize)
 
     @defer.inlineCallbacks
     def get_components(self):
@@ -228,23 +475,20 @@ class Data(object):
                 metric_changed = False
 
                 for each_metric in metrics:
-                    metric_keys = ['tinyfeedback:data:component:%s:metric:%s:6h' % (component, each_metric),
+                    metric_keys = ['tinyfeedback:data:component:%s:metric:%s:last_updated' % (component, each_metric),
+                            'tinyfeedback:data:component:%s:metric:%s:6h' % (component, each_metric),
                             'tinyfeedback:data:component:%s:metric:%s:36h' % (component, each_metric),
                             'tinyfeedback:data:component:%s:metric:%s:1w' % (component, each_metric),
                             'tinyfeedback:data:component:%s:metric:%s:1m' % (component, each_metric),
                             'tinyfeedback:data:component:%s:metric:%s:6m' % (component, each_metric),
                             ]
 
-                    info_6h = yield self.__redis.get(metric_keys[0])
+                    last_updated = yield self.__redis.get(metric_keys[0])
 
-                    if not info_6h:
+                    if not last_updated:
                         continue
 
-                    info_6h = simplejson.loads(info_6h)
-
-                    if current_time_slot - info_6h['last_updated'] > \
-                            (7 * 24 * 60 * 60):
-
+                    if current_time_slot - last_updated > (7 * 24 * 60 * 60):
                         metric_changed = True
                         metrics.remove(each_metric)
 
@@ -275,11 +519,10 @@ class Data(object):
             defer.returnValue(simplejson.loads(metrics))
 
     @defer.inlineCallbacks
-    def get_data(self, component, metric, timescale):
-        key = 'tinyfeedback:data:component:%s:metric:%s:%s' % (component, metric, timescale)
-
+    def get_data(self, component, metric, timescale, updates_infrequently=False):
         keys = ['tinyfeedback:data:list_components',
                 'tinyfeedback:data:component:%s:list_metrics' % component,
+                'tinyfeedback:data:component:%s:metric:%s:last_updated' % (component, metric),
                 'tinyfeedback:data:component:%s:metric:%s:6h' % (component, metric),
                 'tinyfeedback:data:component:%s:metric:%s:36h' % (component, metric),
                 'tinyfeedback:data:component:%s:metric:%s:1w' % (component, metric),
@@ -293,9 +536,13 @@ class Data(object):
             try:
                 transaction = yield self.__redis.multi(keys)
 
-                info_6h = yield self.__redis.get(keys[2])
+                # If the metric does not exist, just return 0's
+                metrics = yield self.__redis.get(keys[1])
 
-                if not info_6h:
+                if metrics is not None:
+                    metrics = simplejson.loads(metrics)
+
+                if metrics is None or metric not in metrics:
                     if timescale in ['6h', '1m', '6m']:
                         yield transaction.discard()
                         defer.returnValue([0] * 360)
@@ -305,56 +552,51 @@ class Data(object):
                     elif timescale == '1w':
                         yield transaction.discard()
                         defer.returnValue([0] * 336)
+
+                # Try to get the data
+                data_changed, last_updated, info_6h, info_36h, info_1w, \
+                        info_1m, info_6m = yield self.__return_up_to_date_data(
+                            component, metric)
+
+                if data_changed:
+                    yield transaction.mset({keys[2]: last_updated,
+                            keys[3]: simplejson.dumps(info_6h),
+                            keys[4]: simplejson.dumps(info_36h),
+                            keys[5]: simplejson.dumps(info_1w),
+                            keys[6]: simplejson.dumps(info_1m),
+                            keys[7]: simplejson.dumps(info_6m),
+                            })
+
+                    yield transaction.commit()
+
                 else:
-                    info_6h = simplejson.loads(info_6h)
+                    yield transaction.discard()
 
-                current_time_slot = int(time.time()) / 60 * 60
-                time_since_update = current_time_slot - info_6h['last_updated']
-
-                # If we haven't updated in over 10 minutes, do a long roll up
-                if time_since_update / 60 > 10:
-                    yield self.__do_long_roll_up(keys, transaction, time_since_update,
-                            info_6h)
-
-                    info_6h['last_updated'] = current_time_slot
-                    yield transaction.set(keys[2], simplejson.dumps(info_6h))
-
-                # Otherwise do the normal roll up
-                elif time_since_update > 0:
-                    while current_time_slot > info_6h['last_updated']:
-                        info_6h['updates_since_last_roll_up'] += 1
-                        info_6h['last_updated'] += 60
-                        info_6h['data'].append(0)
-
-                        if info_6h['updates_since_last_roll_up'] >= 10:
-                            yield self.__do_roll_up(keys, transaction, info_6h)
-
-                            info_6h['updates_since_last_roll_up'] -= 10
-
-                    # Truncate data to the most recent values
-                    info_6h['data'] = info_6h['data'][-360:]
-
-                    info_6h['last_updated'] = current_time_slot
-                    yield transaction.set(keys[2], simplejson.dumps(info_6h))
-
-                yield transaction.commit()
                 break
 
             except txredisapi.WatchError:
                 continue
 
-        data = yield self.__redis.get(key)
+        if timescale == '6h':
+            data = info_6h
+        elif timescale == '36h':
+            data = info_36h
+        elif timescale == '1w':
+            data = info_1w
+        elif timescale == '1m':
+            data = info_1m
+        elif timescale == '6m':
+            data = info_6m
 
-        if not data:
-            if timescale in ['6h', '1m', '6m']:
-                defer.returnValue([0] * 360)
-            elif timescale == '36h':
-                defer.returnValue([0] * 432)
-            elif timescale == '1w':
-                defer.returnValue([0] * 336)
-        else:
-            data = simplejson.loads(data)
-            defer.returnValue(data['data'])
+        last_seen_value = 0
+        for i in xrange(len(data)):
+            if data[i] is None:
+                data[i] = last_seen_value
+
+            if updates_infrequently and data[i] is not None:
+                last_seen_value = data[i]
+
+        defer.returnValue(data)
 
     @defer.inlineCallbacks
     def delete_data(self, component, metric=None):
@@ -394,6 +636,7 @@ class Data(object):
                 # Delete the data
                 for each_metric in metrics_to_delete:
                     metric_keys = [
+                            'tinyfeedback:data:component:%s:metric:%s:last_updated' % (component, each_metric),
                             'tinyfeedback:data:component:%s:metric:%s:6h' % (component, each_metric),
                             'tinyfeedback:data:component:%s:metric:%s:36h' % (component, each_metric),
                             'tinyfeedback:data:component:%s:metric:%s:1w' % (component, each_metric),
@@ -427,23 +670,8 @@ class Data(object):
                 continue
 
     @defer.inlineCallbacks
-    def update_metric(self, component, metric, value):
-        # Make sure values are sane
-        if not re.match('^[A-Za-z0-9_\.:-]+$', component):
-            raise ValueError('Bad component: %s (must only contain A-Z, a-z, 0-9, _, -, :, and .)' % component)
-
-        if not re.match('^[A-Za-z0-9_\.:-]+$', metric):
-            raise ValueError('Bad metric: %s (must only contain A-Z, a-z, 0-9, _, -, :, and .)' % metric)
-
-        yield self.__update_metric_limit.acquire()
-
-        component = component[:128]
-        metric = metric[:128]
-        value = int(value)
-
-        # Now we can actually update
-        keys = ['tinyfeedback:data:list_components',
-                'tinyfeedback:data:component:%s:list_metrics' % component,
+    def __return_up_to_date_data(self, component, metric, update_value=None):
+        keys = ['tinyfeedback:data:component:%s:metric:%s:last_updated' % (component, metric),
                 'tinyfeedback:data:component:%s:metric:%s:6h' % (component, metric),
                 'tinyfeedback:data:component:%s:metric:%s:36h' % (component, metric),
                 'tinyfeedback:data:component:%s:metric:%s:1w' % (component, metric),
@@ -451,260 +679,129 @@ class Data(object):
                 'tinyfeedback:data:component:%s:metric:%s:6m' % (component, metric),
                 ]
 
-        while True:
-            try:
-                transaction = yield self.__redis.multi(keys)
+        data = yield self.__redis.mget(keys)
+        data_changed = False
 
-                components, metrics = yield self.__redis.mget(keys[:2])
-                info_6h = yield self.__redis.get(keys[2])
-
-                # Make sure component is listed
-                if not components:
-                    components = [component]
-                    yield transaction.set(keys[0], simplejson.dumps(components))
-
-                else:
-                    components = simplejson.loads(components)
-                    if component not in components:
-                        components.append(component)
-                        components.sort()
-                        yield transaction.set(keys[0],
-                                simplejson.dumps(components))
-
-                # Make sure metric is listed
-                if not metrics:
-                    metrics = [metric]
-                    yield transaction.set(keys[1], simplejson.dumps(metrics))
-
-                else:
-                    metrics = simplejson.loads(metrics)
-                    if metric not in metrics:
-                        metrics.append(metric)
-                        metrics.sort()
-                        yield transaction.set(keys[1],
-                                simplejson.dumps(metrics))
-
-                # Now we're actually ready to deal with the data
-                current_time_slot = int(time.time()) / 60 * 60
-
-                if not info_6h:
-                    info_6h = {'data': [0] * 360, # Every 1 min
-                            'updates_since_last_roll_up': 0,
-                            'last_updated': current_time_slot,
-                            }
-
-                else:
-                    info_6h = simplejson.loads(info_6h)
-
-                time_since_update = current_time_slot - info_6h['last_updated']
-
-                # If we haven't updated in over 10 minutes, do a long roll up
-                if time_since_update / 60 > 10:
-                    yield self.__do_long_roll_up(keys, transaction,
-                            time_since_update, info_6h)
-
-                # Otherwise do the normal roll up
-                else:
-                    while current_time_slot > info_6h['last_updated']:
-                        info_6h['updates_since_last_roll_up'] += 1
-                        info_6h['last_updated'] += 60
-                        info_6h['data'].append(0)
-
-                        if info_6h['updates_since_last_roll_up'] >= 10:
-                            # Make sure the value is set before roll up
-                            if current_time_slot == info_6h['last_updated']:
-                                info_6h['data'][-1] = value
-
-                            yield self.__do_roll_up(keys, transaction, info_6h)
-
-                            info_6h['updates_since_last_roll_up'] -= 10
-
-                    # Truncate data to the most recent values
-                    info_6h['data'] = info_6h['data'][-360:]
-
-                # At last, update the value
-                info_6h['data'][-1] = value
-                info_6h['last_updated'] = current_time_slot
-
-                yield transaction.set(keys[2], simplejson.dumps(info_6h))
-
-                yield transaction.commit()
-                break
-
-            except txredisapi.WatchError:
-                continue
-
-        yield self.__update_metric_limit.release()
-
-    @defer.inlineCallbacks
-    def __load_long_data(self, keys, transaction):
-        info_36h, info_1w, info_1m, info_6m = yield self.__redis.mget(keys[3:])
-
-        # Makes sure the data is loaded
-        if not info_36h:
-            info_36h = {'data': [0] * 432, # Every 5 min
-                    'updates_since_last_roll_up': 0,
-                    }
-
-            yield transaction.set(keys[3], simplejson.dumps(info_36h))
+        # Load the data in the format we want
+        if data[0] is None:
+            last_updated = int(time.time()) / 60 * 60
         else:
-            info_36h = simplejson.loads(info_36h)
+            last_updated = data[0]
 
-        if not info_1w:
-            info_1w = {'data': [0] * 336, # Every 30 min
-                    'updates_since_last_roll_up': 0,
-                    }
-
-            yield transaction.set(keys[4], simplejson.dumps(info_1w))
+        if data[1] is None:
+            info_6h = [0] * 360 # 1 min each
         else:
-            info_1w = simplejson.loads(info_1w)
+            info_6h = simplejson.loads(data[1])
 
-        if not info_1m:
-            info_1m = {'data': [0] * 360, # Every 2 hours
-                    'updates_since_last_roll_up': 0,
-                    }
+            # HACK: backwards compatability
+            if isinstance(info_6h, dict):
+                last_updated = info_6h['last_updated']
+                info_6h = info_6h['data']
+                data_changed = True
 
-            yield transaction.set(keys[5], simplejson.dumps(info_1m))
+        if data[2] is None:
+            info_36h = [0] * 432 # 5 min each
         else:
-            info_1m = simplejson.loads(info_1m)
+            info_36h = simplejson.loads(data[2])
 
-        if not info_6m:
-            info_6m = {'data': [0] * 360, # Every 12 hours
-                    }
+            # HACK: backwards compatability
+            if isinstance(info_36h, dict):
+                info_36h = info_36h['data']
+                data_changed = True
 
-            yield transaction.set(keys[6], simplejson.dumps(info_6m))
+        if data[3] is None:
+            info_1w = [0] * 336 # 30 min each
         else:
-            info_6m = simplejson.loads(info_6m)
+            info_1w = simplejson.loads(data[3])
 
-        defer.returnValue((info_36h, info_1w, info_1m, info_6m))
+            # HACK: backwards compatability
+            if isinstance(info_1w, dict):
+                info_1w = info_1w['data']
+                data_changed = True
 
-    @defer.inlineCallbacks
-    def __do_roll_up(self, keys, transaction, info_6h):
-        info_36h, info_1w, info_1m, info_6m = yield self.__load_long_data(
-                keys, transaction)
-
-        # Roll up for 36h
-        subset = info_6h['data'][-10:]
-        min_value = min(subset)
-        max_value = max(subset)
-
-        if subset.index(min_value) < subset.index(max_value):
-            info_36h['data'].extend([min_value, max_value])
+        if data[4] is None:
+            info_1m = [0] * 360 # 2 hours each
         else:
-            info_36h['data'].extend([max_value, min_value])
+            info_1m = simplejson.loads(data[4])
 
-        info_36h['updates_since_last_roll_up'] += 2
-        info_36h['data'] = info_36h['data'][2:]
+            # HACK: backwards compatability
+            if isinstance(info_1m, dict):
+                info_1m = info_1m['data']
+                data_changed = True
 
-        # Roll up for 1w
-        if info_36h['updates_since_last_roll_up'] >= 12:
-            info_36h['updates_since_last_roll_up'] -= 12
+        if data[5] is None:
+            info_6m = [0] * 360 # 12 hours each
+        else:
+            info_6m = simplejson.loads(data[5])
 
-            subset = info_36h['data'][-12:]
-            min_value = min(subset)
-            max_value = max(subset)
+            # HACK: backwards compatability
+            if isinstance(info_6m, dict):
+                info_6m = info_6m['data']
+                data_changed = True
 
-            if subset.index(min_value) < subset.index(max_value):
-                info_1w['data'].extend([min_value, max_value])
-            else:
-                info_1w['data'].extend([max_value, min_value])
+        update_to = int(time.time()) / 60 * 60
 
-            info_1w['updates_since_last_roll_up'] += 2
-            info_1w['data'] = info_1w['data'][2:]
+        while last_updated < update_to:
+            data_changed = True
+            last_updated += 60
 
-        # Roll up for 1m
-        if info_1w['updates_since_last_roll_up'] >= 8:
-            info_1w['updates_since_last_roll_up'] -= 8
+            # First, save the roll up values
+            if last_updated % 600 == 0:
+                first, second = self.__get_max_min(info_6h[-10:])
+                info_36h[-2] = first
+                info_36h[-1] = second
 
-            subset = info_1w['data'][-8:]
-            min_value = min(subset)
-            max_value = max(subset)
+            if last_updated % 3600 == 0:
+                first, second = self.__get_max_min(info_36h[-12:])
+                info_1w[-2] = first
+                info_1w[-1] = second
 
-            if subset.index(min_value) < subset.index(max_value):
-                info_1m['data'].extend([min_value, max_value])
-            else:
-                info_1m['data'].extend([max_value, min_value])
+            if last_updated % 14400 == 0:
+                first, second = self.__get_max_min(info_1w[-8:])
+                info_1m[-2] = first
+                info_1m[-1] = second
 
-            info_1m['updates_since_last_roll_up'] += 2
-            info_1m['data'] = info_1m['data'][2:]
+            if last_updated % 86400 == 0:
+                first, second = self.__get_max_min(info_1m[-12:])
+                info_6m[-2] = first
+                info_6m[-1] = second
 
-        # Roll up for 6m
-        if info_1m['updates_since_last_roll_up'] >= 12:
-            info_1m['updates_since_last_roll_up'] -= 12
+            # Then, extend arrays
+            info_6h.append(None)
 
-            subset = info_1m['data'][-12:]
-            min_value = min(subset)
-            max_value = max(subset)
+            if last_updated % 600 == 0:
+                info_36h.extend([0, 0])
 
-            if subset.index(min_value) < subset.index(max_value):
-                info_6m['data'].extend([min_value, max_value])
-            else:
-                info_6m['data'].extend([max_value, min_value])
+            if last_updated % 3600 == 0:
+                info_1w.extend([0, 0])
 
-            info_6m['data'] = info_6m['data'][2:]
+            if last_updated % 14400 == 0:
+                info_1m.extend([0, 0])
 
-        yield transaction.set(keys[3], simplejson.dumps(info_36h))
-        yield transaction.set(keys[4], simplejson.dumps(info_1w))
-        yield transaction.set(keys[5], simplejson.dumps(info_1m))
-        yield transaction.set(keys[6], simplejson.dumps(info_6m))
+            if last_updated % 86400 == 0:
+                info_6m.extend([0, 0])
 
-    @defer.inlineCallbacks
-    def __do_long_roll_up(self, keys, transaction, time_since_update, info_6h):
-        info_36h, info_1w, info_1m, info_6m = yield self.__load_long_data(
-                keys, transaction)
+        if update_value is not None or data_changed:
+            if update_value is not None:
+                info_6h[-1] = update_value
+                data_changed = True
 
-        # Roll up for 6h
-        needed_updates = time_since_update / 60
-        needed_updates_floor = min(needed_updates, 360)
-        info_6h['data'].extend([0] * needed_updates_floor)
-        info_6h['data'] = info_6h['data'][-360:]
-        info_6h['updates_since_last_roll_up'] += needed_updates
+            # Do partial roll ups
+            for (block_size, unit_size, small_array, large_array) in (
+                    (600, 60, info_6h, info_36h),
+                    (3600, 300, info_36h, info_1w),
+                    (14400, 1800, info_1w, info_1m),
+                    (86400, 7200, info_1m, info_6m),
+                    ):
 
-        needed_updates = info_6h['updates_since_last_roll_up'] / 10
-        info_6h['updates_since_last_roll_up'] %= 10
+                partial_update_range = (last_updated % block_size /
+                        unit_size) + 1
 
-        yield transaction.set(keys[2], simplejson.dumps(info_6h))
+                first, second = self.__get_max_min(
+                        small_array[-1*partial_update_range:])
 
-        # Roll up for 36h
-        if needed_updates > 0:
-            needed_updates_floor = min(needed_updates, 432 / 2)
-            info_36h['data'].extend([0] * 2 * needed_updates_floor)
-            info_36h['data'] = info_36h['data'][-432:]
-            info_36h['updates_since_last_roll_up'] += needed_updates
+                large_array[-2] = first
+                large_array[-1] = second
 
-            needed_updates = info_36h['updates_since_last_roll_up'] / 12
-            info_36h['updates_since_last_roll_up'] %= 12
-
-            yield transaction.set(keys[3], simplejson.dumps(info_36h))
-
-        # Roll up for 1w
-        if needed_updates > 0:
-            needed_updates_floor = min(needed_updates, 336 / 2)
-            info_1w['data'].extend([0] * 2 * needed_updates_floor)
-            info_1w['data'] = info_1w['data'][-336:]
-            info_1w['updates_since_last_roll_up'] += needed_updates
-
-            needed_updates = info_1w['updates_since_last_roll_up'] / 8
-            info_1w['updates_since_last_roll_up'] %= 8
-
-            yield transaction.set(keys[4], simplejson.dumps(info_1w))
-
-        # Roll up for 1m
-        if needed_updates > 0:
-            needed_updates_floor = min(needed_updates, 360 / 2)
-            info_1m['data'].extend([0] * 2 * needed_updates_floor)
-            info_1m['data'] = info_1m['data'][-360:]
-            info_1m['updates_since_last_roll_up'] += needed_updates
-
-            needed_updates = info_1m['updates_since_last_roll_up'] / 12
-            info_1m['updates_since_last_roll_up'] %= 12
-
-            yield transaction.set(keys[5], simplejson.dumps(info_1m))
-
-        # Roll up for 6m
-        if needed_updates > 0:
-            needed_updates_floor = min(needed_updates, 360 / 2)
-            info_6m['data'].extend([0] * 2 * needed_updates_floor)
-            info_6m['data'] = info_6m['data'][-360:]
-
-            yield transaction.set(keys[6], simplejson.dumps(info_6m))
+        defer.returnValue((data_changed, last_updated, info_6h[-360:],
+                info_36h[-432:], info_1w[-336:], info_1m[-360:], info_6m[-360:]))
