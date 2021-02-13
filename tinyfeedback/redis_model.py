@@ -37,10 +37,14 @@ class Graph(object):
         user_key = 'tinyfeedback:usernames'
         usernames = yield self.__redis.smembers(user_key)
 
-        keys = ['tinyfeedback:graph:%s:all_graphs' % each_username for \
-                each_username in usernames]
 
-        user_graphs = yield self.__redis.mget(keys)
+        if len(usernames) != 0:
+            keys = ['tinyfeedback:graph:%s:all_graphs' % each_username for \
+                    each_username in usernames]
+
+            user_graphs = yield self.__redis.mget(keys)
+        else:
+            user_graphs = []
 
         graphs_per_user = []
         for i, each_username in enumerate(usernames):
